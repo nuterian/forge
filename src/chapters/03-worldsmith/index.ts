@@ -17,6 +17,7 @@
 import type { ChapterContext, ChapterInstance } from '../../app/chapter.ts';
 import { TAU, clamp, mat3, mat4, vec3 } from '../../core/math.ts';
 import { Program } from '../../gl/program.ts';
+import { beginAdditive, beginOpaque, beginTranslucent, endPasses } from '../../gl/passes.ts';
 import { ringAnnulus, toMesh, uvSphere } from '../../gl/geometry.ts';
 import { buildPolyline } from '../../gl/polyline.ts';
 import type { LabelSpec } from '../../ui/labels.ts';
@@ -237,6 +238,9 @@ export function create(ctx: ChapterContext): ChapterInstance {
       position: moon.position,
       priority: 2,
       maxDistance: 16,
+      // The world is a unit sphere at planetPosition, and a moon behind it
+      // should not shout its name through the crust.
+      occluder: { center: planetPosition, radius: 1 },
     });
   }
   labels.set(specs);
@@ -317,10 +321,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
     // --- sky ---------------------------------------------------------------
     sky.draw(camera, inks, { density: 0.9, galaxy: 0.5 });
 
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthMask(true);
-    gl.enable(gl.CULL_FACE);
-    gl.cullFace(gl.BACK);
+    beginOpaque(gl);
 
     // --- the star: the Orrery's sun, reseeded ------------------------------
     sunProgram
@@ -380,12 +381,9 @@ export function create(ctx: ChapterContext): ChapterInstance {
     }
 
     // --- translucent passes -------------------------------------------------------
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.depthMask(false);
+    beginTranslucent(gl);
 
     if (ringProgram && ringMesh && params.rings) {
-      gl.disable(gl.CULL_FACE);
       ringProgram
         .use()
         .set('uViewProjection', camera.viewProjection)
@@ -400,11 +398,9 @@ export function create(ctx: ChapterContext): ChapterInstance {
         .set('uPlanetCenter', planetPosition)
         .set('uPlanetRadius', 1);
       ringMesh.draw();
-      gl.enable(gl.CULL_FACE);
     }
 
     // --- the orbit trace: the year, drawn as an instrument line -------------------
-    gl.disable(gl.CULL_FACE);
     orbitProgram
       .use()
       .set('uViewProjection', camera.viewProjection)
@@ -416,11 +412,9 @@ export function create(ctx: ChapterContext): ChapterInstance {
       .set('uOpacity', 0.85)
       .set('uPhase', orbitPhase);
     orbitMesh.draw();
-    gl.enable(gl.CULL_FACE);
 
     // --- glows, additive over everything ---------------------------------------------
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-    gl.disable(gl.CULL_FACE);
+    beginAdditive(gl);
 
     corona.draw(camera, {
       center: ORIGIN,
@@ -448,9 +442,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
       });
     }
 
-    gl.enable(gl.CULL_FACE);
-    gl.depthMask(true);
-    gl.disable(gl.BLEND);
+    endPasses(gl);
   };
 
   // -- lifecycle ---------------------------------------------------------------------------------

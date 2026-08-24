@@ -21,6 +21,12 @@ export interface LabelSpec {
   priority?: number;
   /** Hidden beyond this distance from the camera. */
   maxDistance?: number;
+  /**
+   * A body this label can hide behind — a moon's parent planet, say. Held live
+   * and read every frame, exactly like `position`, so callers mutate it in
+   * place rather than rebuilding the label set as the world moves.
+   */
+  occluder?: { center: Vec3; radius: number };
 }
 
 interface LabelEntry {
@@ -30,6 +36,38 @@ interface LabelEntry {
 }
 
 const projected = { x: 0, y: 0, visible: false };
+
+/**
+ * Does `sphere` stand between the eye and `target`? A ray-sphere intersection
+ * written out in scalars — this runs for every label every frame, and a label
+ * layer has no business allocating vectors at 60fps.
+ *
+ * The near hit has to land *in front of* the target, not merely on the ray:
+ * a moon crossing in front of its planet is not hidden by it.
+ */
+function occludes(eye: Vec3, target: Vec3, center: Vec3, radius: number): boolean {
+  const dx = target[0]! - eye[0]!;
+  const dy = target[1]! - eye[1]!;
+  const dz = target[2]! - eye[2]!;
+  const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (distance < 1e-6) return false;
+
+  const ux = dx / distance, uy = dy / distance, uz = dz / distance;
+  const ox = center[0]! - eye[0]!;
+  const oy = center[1]! - eye[1]!;
+  const oz = center[2]! - eye[2]!;
+
+  // Distance along the ray to the point closest to the sphere's centre.
+  const along = ox * ux + oy * uy + oz * uz;
+  if (along <= 0) return false; // the body is behind the eye
+
+  const closest2 = ox * ox + oy * oy + oz * oz - along * along;
+  const radius2 = radius * radius;
+  if (closest2 >= radius2) return false; // the ray misses
+
+  const near = along - Math.sqrt(radius2 - closest2);
+  return near > 0 && near < distance;
+}
 
 /** World position → normalized screen coords, same contract as camera.project. */
 export type LabelProjector = (
@@ -126,6 +164,13 @@ export class LabelLayer {
         continue;
       }
       if (spec.maxDistance !== undefined && camera.distanceTo(spec.position) > spec.maxDistance) {
+        entry.el.style.opacity = '0';
+        continue;
+      }
+      if (
+        spec.occluder &&
+        occludes(camera.position, spec.position, spec.occluder.center, spec.occluder.radius)
+      ) {
         entry.el.style.opacity = '0';
         continue;
       }

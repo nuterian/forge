@@ -168,7 +168,14 @@ void main() {
   vec3 lightDir = normalize(uLightPos - vWorldPos);
   vec3 viewDir = normalize(uCameraPos - vWorldPos);
   vec3 sphereN = normalize(vNormal);
-  float ndl = dot(shadeN, lightDir);
+
+  // The bump is strong enough to tip a fragment across the day/night boundary
+  // on its own, and a band edge that wanders by one fragment prints as black
+  // flecks scattered along the lit limb. So the bump's say in N·L fades out as
+  // the *unperturbed* N·L approaches zero: the terminator stays one clean edge
+  // where the geometry puts it, and relief keeps all its bite in full light.
+  float baseNdl = dot(sphereN, lightDir);
+  float ndl = mix(baseNdl, dot(shadeN, lightDir), smoothstep(0.02, 0.25, baseNdl));
 
   // Water and ice are the glossy surfaces; land prints matte.
   float gloss = (1.0 - land) * (1.0 - ice * 0.6) + ice * 0.25;

@@ -19,6 +19,7 @@ import {
 import { Rng } from '../../core/rng.ts';
 import { Spline } from '../../core/spline.ts';
 import { Program } from '../../gl/program.ts';
+import { beginAdditive, beginOpaque, beginTranslucent, endPasses } from '../../gl/passes.ts';
 import { Mesh } from '../../gl/mesh.ts';
 import { icosphere, ringAnnulus, uvSphere, toMesh } from '../../gl/geometry.ts';
 import { buildPolyline, updatePolyline } from '../../gl/polyline.ts';
@@ -449,6 +450,9 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
             priority: 1,
             // Moons only earn a label when you are close enough to see them.
             maxDistance: 14,
+            // ...and not while the planet itself is in the way. body.position
+            // is the same live vector the scene graph writes each frame.
+            occluder: { center: body.position, radius: body.radius },
           });
         }
       }
@@ -595,11 +599,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       sky.draw(camera, inks, { density: 1, galaxy: settings.galaxy });
     }
 
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthMask(true);
-    gl.disable(gl.BLEND);
-    gl.enable(gl.CULL_FACE);
-    gl.cullFace(gl.BACK);
+    beginOpaque(gl);
 
     // --- the sun: one fragment shader, no textures ------------------------
     mat4.fromScale(tmpMat, sun.radius, sun.radius, sun.radius);
@@ -695,12 +695,9 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     }
 
     // --- translucent passes ------------------------------------------------
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.depthMask(false);
+    beginTranslucent(gl);
 
     if (settings.showRings) {
-      gl.disable(gl.CULL_FACE);
       ringProgram
         .use()
         .set('uViewProjection', camera.viewProjection)
@@ -722,12 +719,10 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
           .set('uPlanetRadius', body.radius);
         body.ringMesh.draw();
       }
-      gl.enable(gl.CULL_FACE);
     }
 
     // --- orbit traces ------------------------------------------------------
     if (settings.showOrbits) {
-      gl.disable(gl.CULL_FACE);
       orbitProgram
         .use()
         .set('uViewProjection', camera.viewProjection)
@@ -754,13 +749,11 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
           .set('uDashes', 90);
         tourMesh.draw();
       }
-      gl.enable(gl.CULL_FACE);
     }
 
     // --- corona, additive over everything ---------------------------------
     if (settings.corona > 0.001) {
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-      gl.disable(gl.CULL_FACE);
+      beginAdditive(gl);
       corona.draw(camera, {
         center: sun.position,
         scale: sun.radius * 3.0,
@@ -771,9 +764,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       });
     }
 
-    gl.enable(gl.CULL_FACE);
-    gl.depthMask(true);
-    gl.disable(gl.BLEND);
+    endPasses(gl);
   };
 
   // -- lifecycle -----------------------------------------------------------
