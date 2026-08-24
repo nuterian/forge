@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+
+# the original 2015 coursework, kept locally as reference only
+graphics-gh-pages/
