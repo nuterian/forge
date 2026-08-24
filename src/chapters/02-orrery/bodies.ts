@@ -7,16 +7,8 @@
  * that would cost a great deal of code and change nothing you can see.
  */
 
-import type { OrbitalElements } from './kepler.ts';
-
-/** How the surface shader patterns this body. */
-export type SurfaceStyle = 'rocky' | 'banded' | 'icy';
-
-export const SURFACE_STYLE_ID: Record<SurfaceStyle, number> = {
-  rocky: 0,
-  banded: 1,
-  icy: 2,
-};
+import type { OrbitalElements } from '../../core/kepler.ts';
+import type { SurfaceStyle } from '../../scene/body.ts';
 
 export interface RingDef {
   /** Inner and outer radius, in units of the planet's own radius. */

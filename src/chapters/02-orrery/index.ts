@@ -20,25 +20,26 @@ import { Rng } from '../../core/rng.ts';
 import { Spline } from '../../core/spline.ts';
 import { Program } from '../../gl/program.ts';
 import { Mesh } from '../../gl/mesh.ts';
-import { icosphere, ringAnnulus, uvSphere, toMesh, fullscreenTriangle, billboardQuad } from '../../gl/geometry.ts';
+import { icosphere, ringAnnulus, uvSphere, toMesh } from '../../gl/geometry.ts';
 import { buildPolyline, updatePolyline } from '../../gl/polyline.ts';
 import { loadObj, normalizeGeometry } from '../../gl/obj.ts';
 import type { LabelSpec } from '../../ui/labels.ts';
-import { BELT, PLANETS, SURFACE_STYLE_ID, TOUR_ORDER, type BodyDef, type MoonDef } from './bodies.ts';
-import { dateFromDays, daysFromDate, meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from './kepler.ts';
+import { SURFACE_STYLE_ID } from '../../scene/body.ts';
+import { GlowBillboard } from '../../scene/glow.ts';
+import { SkyPass } from '../../scene/sky.ts';
+import { BELT, PLANETS, TOUR_ORDER, type BodyDef, type MoonDef } from './bodies.ts';
+import { dateFromDays, daysFromDate, meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from '../../core/kepler.ts';
 
-import bodyVert from './shaders/body.vert?raw';
-import bodyFrag from './shaders/body.frag?raw';
-import sunFrag from './shaders/sun.frag?raw';
-import coronaVert from './shaders/corona.vert?raw';
-import coronaFrag from './shaders/corona.frag?raw';
-import ringsFrag from './shaders/rings.frag?raw';
-import orbitVert from './shaders/orbit.vert?raw';
-import orbitFrag from './shaders/orbit.frag?raw';
+// Scene furniture shared with the other space chapters.
+import bodyVert from '../../scene/shaders/body.vert?raw';
+import bodyFrag from '../../scene/shaders/body.frag?raw';
+import sunFrag from '../../scene/shaders/sun.frag?raw';
+import ringsFrag from '../../scene/shaders/rings.frag?raw';
+import orbitVert from '../../scene/shaders/orbit.vert?raw';
+import orbitFrag from '../../scene/shaders/orbit.frag?raw';
+// The belt is the Orrery's own: nothing else instances rocks by orbit.
 import asteroidVert from './shaders/asteroid.vert?raw';
 import asteroidFrag from './shaders/asteroid.frag?raw';
-import skyVert from './shaders/sky.vert?raw';
-import skyFrag from './shaders/sky.frag?raw';
 
 /** Earth radii, the reference for perceptual body sizing. */
 const EARTH_RADIUS_KM = 6371;
@@ -160,17 +161,15 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   const bodyProgram = new Program(gl, bodyVert, bodyFrag, 'orrery.body');
   const sunProgram = new Program(gl, bodyVert, sunFrag, 'orrery.sun');
   const ringProgram = new Program(gl, bodyVert, ringsFrag, 'orrery.rings');
-  const coronaProgram = new Program(gl, coronaVert, coronaFrag, 'orrery.corona');
   const orbitProgram = new Program(gl, orbitVert, orbitFrag, 'orrery.orbit');
   const asteroidProgram = new Program(gl, asteroidVert, asteroidFrag, 'orrery.asteroid');
-  const skyProgram = new Program(gl, skyVert, skyFrag, 'orrery.sky');
+  const sky = new SkyPass(gl, 'orrery.sky');
+  const corona = new GlowBillboard(gl, 'orrery.corona');
 
   // -- geometry ------------------------------------------------------------
 
   const planetMesh = toMesh(gl, uvSphere(1, 56, 36));
   const moonMesh = toMesh(gl, uvSphere(1, 24, 16));
-  const skyQuad = fullscreenTriangle(gl);
-  const coronaQuad = billboardQuad(gl);
 
   const probeGeometry = normalizeGeometry(await loadObj(`${import.meta.env.BASE_URL}probe.obj`), 1);
   const probeMesh = toMesh(gl, probeGeometry);
@@ -471,9 +470,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   const tmpLocal = vec3.create();
   const tmpMat = mat4.create();
   const tmpMat2 = mat4.create();
-  const invViewProjection = mat4.create();
-  const cameraRight = vec3.create();
-  const cameraUp = vec3.create();
   const resolution = new Float32Array(2);
   const lightPosition = vec3.create(0, 0, 0);
 
@@ -596,19 +592,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
 
     // --- sky: a fullscreen pass behind everything -------------------------
     if (settings.showSky) {
-      gl.disable(gl.DEPTH_TEST);
-      gl.disable(gl.BLEND);
-      mat4.invert(invViewProjection, camera.viewProjection);
-      skyProgram
-        .use()
-        .set('uInvViewProjection', invViewProjection)
-        .set('uCameraPos', camera.position)
-        .set('uInkStar', inks.ink(0))
-        .set('uInkDust', inks.ink(4))
-        .set('uPaper', inks.paper)
-        .set('uDensity', 1)
-        .set('uGalaxy', settings.galaxy);
-      skyQuad.draw();
+      sky.draw(camera, inks, { density: 1, galaxy: settings.galaxy });
     }
 
     gl.enable(gl.DEPTH_TEST);
@@ -777,20 +761,14 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     if (settings.corona > 0.001) {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
       gl.disable(gl.CULL_FACE);
-      camera.billboardAxes(cameraRight, cameraUp);
-
-      coronaProgram
-        .use()
-        .set('uViewProjection', camera.viewProjection)
-        .set('uCenter', sun.position)
-        .set('uCameraRight', cameraRight)
-        .set('uCameraUp', cameraUp)
-        .set('uScale', sun.radius * 3.0)
-        .set('uInner', 1 / 3.0)
-        .set('uTime', sunClock)
-        .set('uInk', inks.ink(1))
-        .set('uOpacity', settings.corona);
-      coronaQuad.draw();
+      corona.draw(camera, {
+        center: sun.position,
+        scale: sun.radius * 3.0,
+        inner: 1 / 3.0,
+        ink: inks.ink(1),
+        opacity: settings.corona,
+        time: sunClock,
+      });
     }
 
     gl.enable(gl.CULL_FACE);
@@ -809,10 +787,12 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     },
     dispose() {
       camera.inputEnabled = true;
-      for (const program of [bodyProgram, sunProgram, ringProgram, coronaProgram, orbitProgram, asteroidProgram, skyProgram]) {
+      for (const program of [bodyProgram, sunProgram, ringProgram, orbitProgram, asteroidProgram]) {
         program.dispose();
       }
-      for (const mesh of [planetMesh, moonMesh, skyQuad, coronaQuad, probeMesh, beltMesh]) {
+      sky.dispose();
+      corona.dispose();
+      for (const mesh of [planetMesh, moonMesh, probeMesh, beltMesh]) {
         mesh.dispose();
       }
       for (const body of bodies) {

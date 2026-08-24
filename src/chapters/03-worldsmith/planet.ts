@@ -10,7 +10,7 @@ import { bodyName, starName } from '../../core/names.ts';
 import type { Rng } from '../../core/rng.ts';
 import type { Program } from '../../gl/program.ts';
 import type { InkSet } from '../../ui/palette.ts';
-import type { OrbitalElements } from '../02-orrery/kepler.ts';
+import type { OrbitalElements } from '../../core/kepler.ts';
 
 export interface MoonParams {
   name: string;
@@ -69,19 +69,19 @@ export interface PlanetParams {
   rings: RingParams | null;
   /**
    * The world's path around its star: real orbital elements, solved by the
-   * Orrery's Kepler module. Units are world units and visual seconds — `a` in
+   * shared Kepler module. Units are world units and visual seconds — `a` in
    * planet radii from the star, `period` in seconds at pace 1.
    */
   orbit: OrbitalElements;
 }
 
 /**
- * The star a world answers to. Rendered with the Orrery's sun shader, whose
+ * The star a world answers to. Rendered with the shared sun shader, whose
  * three-tone fire gradient (core → hot → flare) has to run dark-to-bright or
  * it stops reading as fire — so unlike the planet's ink scheme, the star
- * always uses the Orrery's own fixed mapping (ink 2 → 1 → 0), the one
- * ordering guaranteed to hold across every palette. Class only varies size
- * and corona reach, never hue.
+ * always uses that shader's fixed mapping (ink 2 → 1 → 0), the one ordering
+ * guaranteed to hold across every palette. Class only varies size and corona
+ * reach, never hue.
  */
 export interface StarParams {
   name: string;

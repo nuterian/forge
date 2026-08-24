@@ -7,7 +7,7 @@
  * for the near-circular orbits of the planets.
  */
 
-import { DEG, TAU, type Vec3 } from '../../core/math.ts';
+import { DEG, TAU, type Vec3 } from './math.ts';
 
 export interface OrbitalElements {
   /** Semi-major axis, AU. */

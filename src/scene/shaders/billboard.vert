@@ -2,6 +2,9 @@
 
 // A camera-facing quad built in the vertex shader: take the view matrix's
 // right and up axes and expand the corners along them. No CPU billboarding.
+//
+// Generic scene furniture — anything that wants to face the camera (coronas,
+// atmospheres, sprites) pairs its own fragment shader with this one.
 
 in vec3 aPosition;
 in vec2 aUv;

@@ -10,36 +10,32 @@
  *
  * Re-imagines the 2015 seeded Perlin terrain generator (demo 8), hand-rolled
  * and wrapped onto a sphere. The planet generator lives in planet.ts and is
- * lifted verbatim by chapter 6; the sky, sun, orbit lines, moons, rings and
- * billboard plumbing are reused straight from the Orrery — chapters building
- * on each other literally.
+ * lifted verbatim by chapter 6; the sky, sun, glow, moons, rings and orbit
+ * lines all come from src/scene — chapters building on each other literally.
  */
 
 import type { ChapterContext, ChapterInstance } from '../../app/chapter.ts';
 import { TAU, clamp, mat3, mat4, vec3 } from '../../core/math.ts';
 import { Program } from '../../gl/program.ts';
-import { billboardQuad, fullscreenTriangle, ringAnnulus, toMesh, uvSphere } from '../../gl/geometry.ts';
+import { ringAnnulus, toMesh, uvSphere } from '../../gl/geometry.ts';
 import { buildPolyline } from '../../gl/polyline.ts';
 import type { LabelSpec } from '../../ui/labels.ts';
-import { meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from '../02-orrery/kepler.ts';
+import { meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from '../../core/kepler.ts';
+import { SURFACE_STYLE_ID } from '../../scene/body.ts';
+import { GlowBillboard } from '../../scene/glow.ts';
+import { SkyPass } from '../../scene/sky.ts';
 import { applyPlanetUniforms, classifyPlanet, createRampTexture, generatePlanet, generateStar } from './planet.ts';
 
 import planetVert from './shaders/planet.vert?raw';
 import planetFrag from './shaders/planet.frag?raw';
-import haloFrag from './shaders/halo.frag?raw';
-// Shared plumbing from the Orrery: the star-chart sky, the procedural sun and
-// its corona, the banded-ink body shader (for moons), the ring annulus, the
-// orbit-trace ribbon, and the billboard expander.
-import bodyVert from '../02-orrery/shaders/body.vert?raw';
-import bodyFrag from '../02-orrery/shaders/body.frag?raw';
-import sunFrag from '../02-orrery/shaders/sun.frag?raw';
-import coronaVert from '../02-orrery/shaders/corona.vert?raw';
-import coronaFrag from '../02-orrery/shaders/corona.frag?raw';
-import ringsFrag from '../02-orrery/shaders/rings.frag?raw';
-import orbitVert from '../02-orrery/shaders/orbit.vert?raw';
-import orbitFrag from '../02-orrery/shaders/orbit.frag?raw';
-import skyVert from '../02-orrery/shaders/sky.vert?raw';
-import skyFrag from '../02-orrery/shaders/sky.frag?raw';
+// Shared scene furniture: the procedural sun, the banded-ink body shader (for
+// moons), the ring annulus and the orbit-trace ribbon.
+import bodyVert from '../../scene/shaders/body.vert?raw';
+import bodyFrag from '../../scene/shaders/body.frag?raw';
+import sunFrag from '../../scene/shaders/sun.frag?raw';
+import ringsFrag from '../../scene/shaders/rings.frag?raw';
+import orbitVert from '../../scene/shaders/orbit.vert?raw';
+import orbitFrag from '../../scene/shaders/orbit.frag?raw';
 
 /** Points sampled along the orbit trace. */
 const ORBIT_SAMPLES = 256;
@@ -74,11 +70,13 @@ export function create(ctx: ChapterContext): ChapterInstance {
   const planetProgram = new Program(gl, planetVert, planetFrag, 'worldsmith.planet');
   const moonProgram = new Program(gl, bodyVert, bodyFrag, 'worldsmith.moon');
   const sunProgram = new Program(gl, bodyVert, sunFrag, 'worldsmith.sun');
-  const coronaProgram = new Program(gl, coronaVert, coronaFrag, 'worldsmith.corona');
-  const haloProgram = new Program(gl, coronaVert, haloFrag, 'worldsmith.halo');
   const orbitProgram = new Program(gl, orbitVert, orbitFrag, 'worldsmith.orbit');
-  const skyProgram = new Program(gl, skyVert, skyFrag, 'worldsmith.sky');
   const ringProgram = params.rings ? new Program(gl, bodyVert, ringsFrag, 'worldsmith.rings') : null;
+  const sky = new SkyPass(gl, 'worldsmith.sky');
+  // One class, two scales: the star's corona reaches out evenly, the planet's
+  // atmosphere leans into the light.
+  const corona = new GlowBillboard(gl, 'worldsmith.corona');
+  const halo = new GlowBillboard(gl, 'worldsmith.halo');
 
   // -- geometry & textures -----------------------------------------------------
 
@@ -87,9 +85,6 @@ export function create(ctx: ChapterContext): ChapterInstance {
   const ringMesh = params.rings
     ? toMesh(gl, ringAnnulus(params.rings.inner, params.rings.outer, 160))
     : null;
-  const skyQuad = fullscreenTriangle(gl);
-  const billboard = billboardQuad(gl); // shared by the corona and the halo
-
   const rampTexture = createRampTexture(gl, params, inks);
 
   // The orbit trace, sampled by mean anomaly so the ribbon's parameter is
@@ -247,11 +242,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
   const tmpMat = mat4.create();
   const tmpLocal = vec3.create();
   const tmpVec = vec3.create();
-  const invViewProjection = mat4.create();
-  const cameraRight = vec3.create();
-  const cameraUp = vec3.create();
   const sunDir = vec3.create();
-  const sunDir2D = new Float32Array(2);
   const resolution = new Float32Array(2);
 
   let viewportWidth = ctx.size.width;
@@ -320,19 +311,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
     resolution[1] = viewportHeight;
 
     // --- sky ---------------------------------------------------------------
-    gl.disable(gl.DEPTH_TEST);
-    gl.disable(gl.BLEND);
-    mat4.invert(invViewProjection, camera.viewProjection);
-    skyProgram
-      .use()
-      .set('uInvViewProjection', invViewProjection)
-      .set('uCameraPos', camera.position)
-      .set('uInkStar', inks.ink(0))
-      .set('uInkDust', inks.ink(4))
-      .set('uPaper', inks.paper)
-      .set('uDensity', 0.9)
-      .set('uGalaxy', 0.5);
-    skyQuad.draw();
+    sky.draw(camera, inks, { density: 0.9, galaxy: 0.5 });
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
@@ -384,7 +363,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
         .set('uShadeMode', settings.shadeMode)
         .set('uPattern', 0.6)
         .set('uAtmosphere', 0)
-        .set('uStyle', 0); // rocky
+        .set('uStyle', SURFACE_STYLE_ID.rocky);
       for (const moon of moonRuntime) {
         moonProgram
           .set('uModel', moon.model)
@@ -437,48 +416,31 @@ export function create(ctx: ChapterContext): ChapterInstance {
     // --- glows, additive over everything ---------------------------------------------
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.disable(gl.CULL_FACE);
-    camera.billboardAxes(cameraRight, cameraUp);
 
-    coronaProgram
-      .use()
-      .set('uViewProjection', camera.viewProjection)
-      .set('uCenter', ORIGIN)
-      .set('uCameraRight', cameraRight)
-      .set('uCameraUp', cameraUp)
-      .set('uScale', star.radius * 3)
-      .set('uInner', 1 / 3)
-      .set('uTime', visClock)
-      .set('uInk', inks.ink(1))
-      .set('uOpacity', star.corona);
-    billboard.draw();
+    corona.draw(camera, {
+      center: ORIGIN,
+      scale: star.radius * 3,
+      inner: 1 / 3,
+      ink: inks.ink(1),
+      opacity: star.corona,
+      time: visClock,
+    });
 
     if (params.atmosphere > 0.01) {
-      // The star's direction flattened into the billboard's plane, so the
-      // halo's long side always faces the light no matter where you orbit.
-      sunDir2D[0] = vec3.dot(sunDir, cameraRight);
-      sunDir2D[1] = vec3.dot(sunDir, cameraUp);
-      const len = Math.hypot(sunDir2D[0]!, sunDir2D[1]!);
-      if (len > 1e-4) {
-        sunDir2D[0] = sunDir2D[0]! / len;
-        sunDir2D[1] = sunDir2D[1]! / len;
-      } else {
-        sunDir2D[0] = 1;
-        sunDir2D[1] = 0;
-      }
-
-      haloProgram
-        .use()
-        .set('uViewProjection', camera.viewProjection)
-        .set('uCenter', planetPosition)
-        .set('uCameraRight', cameraRight)
-        .set('uCameraUp', cameraUp)
-        .set('uScale', 1.5)
-        .set('uInner', 1 / 1.5)
-        .set('uTime', visClock)
-        .set('uInk', inks.ink(params.scheme.atmo))
-        .set('uOpacity', 0.4 * params.atmosphere)
-        .set('uSunDir', sunDir2D);
-      billboard.draw();
+      halo.draw(camera, {
+        center: planetPosition,
+        scale: 1.5,
+        inner: 1 / 1.5,
+        ink: inks.ink(params.scheme.atmo),
+        opacity: 0.4 * params.atmosphere,
+        time: visClock,
+        // A planet's air is a thin skin next to a star's corona, and it only
+        // glows where the light actually reaches.
+        reachMin: 0.16,
+        reachMax: 0.66,
+        sunDir,
+        sunBias: 1,
+      });
     }
 
     gl.enable(gl.CULL_FACE);
@@ -498,14 +460,14 @@ export function create(ctx: ChapterContext): ChapterInstance {
     dispose() {
       camera.minDistance = 0.4;
       camera.maxDistance = 900;
-      for (const program of [
-        planetProgram, moonProgram, sunProgram, coronaProgram,
-        haloProgram, orbitProgram, skyProgram,
-      ]) {
+      for (const program of [planetProgram, moonProgram, sunProgram, orbitProgram]) {
         program.dispose();
       }
       ringProgram?.dispose();
-      for (const mesh of [planetMesh, skyQuad, billboard, orbitMesh]) mesh.dispose();
+      sky.dispose();
+      corona.dispose();
+      halo.dispose();
+      for (const mesh of [planetMesh, orbitMesh]) mesh.dispose();
       moonMesh?.dispose();
       ringMesh?.dispose();
       gl.deleteTexture(rampTexture);
