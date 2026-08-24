@@ -291,6 +291,19 @@ export class Shell {
 
   private async loadChapter(def: ChapterDef, seed: string): Promise<void> {
     const token = ++this.loadToken;
+
+    // A reseed of the same chapter keeps the view: rerolling the sky should
+    // not yank the camera back to its defaults.
+    const isReseed = this.chapterDef?.id === def.id && this.chapter !== null;
+    const view = isReseed
+      ? {
+          yaw: this.camera.yaw,
+          pitch: this.camera.pitch,
+          fov: this.camera.fov,
+          distance: this.camera.distance,
+        }
+      : null;
+
     this.disposeChapter();
     this.clearNotice();
     this.chapterDef = def;
@@ -348,6 +361,18 @@ export class Shell {
 
       this.chapter = instance;
       chapterPanel.add(this.inkSelector());
+
+      // Restore the pre-reseed view, within whatever limits the chapter set.
+      if (view) {
+        this.camera.yaw = view.yaw;
+        this.camera.pitch = view.pitch;
+        this.camera.fov = Math.min(Math.max(view.fov, this.camera.minFov), this.camera.maxFov);
+        this.camera.distance = Math.min(
+          Math.max(view.distance, this.camera.minDistance),
+          this.camera.maxDistance,
+        );
+      }
+
       instance.resize?.(this.ctx.width, this.ctx.height);
     } catch (err) {
       if (token !== this.loadToken) return;

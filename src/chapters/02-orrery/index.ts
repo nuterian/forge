@@ -155,8 +155,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   /** Always runs, even paused — a frozen orrery under a still-simmering sun. */
   let sunClock = 0;
 
-  let debugFrame = 0;
-
   // -- programs ------------------------------------------------------------
 
   const bodyProgram = new Program(gl, bodyVert, bodyFrag, 'orrery.body');
@@ -572,18 +570,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       } else {
         const body = bodies.find((b) => b.def.id === settings.focus);
         if (body) camera.focus(body.position);
-      }
-    }
-
-    if (import.meta.env.DEV) {
-      // Debug handle for verifying lighting geometry from devtools — via the
-      // DOM, which is visible to extension consoles that can't see page JS.
-      debugFrame = (debugFrame + 1) % 30;
-      if (debugFrame === 0) {
-        document.body.dataset.forge = JSON.stringify({
-          camera: Array.from(camera.position),
-          bodies: bodies.map((b) => ({ id: b.def.id, pos: Array.from(b.position) })),
-        });
       }
     }
 

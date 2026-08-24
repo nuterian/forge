@@ -31,12 +31,21 @@ interface LabelEntry {
 
 const projected = { x: 0, y: 0, visible: false };
 
+/** World position → normalized screen coords, same contract as camera.project. */
+export type LabelProjector = (
+  position: Vec3,
+  out: { x: number; y: number; visible: boolean },
+) => void;
+
 export class LabelLayer {
   readonly element: HTMLElement;
   private entries = new Map<string, LabelEntry>();
   private lastDetail = new Map<string, string>();
 
   visible = true;
+
+  /** Chapters with a non-matrix projection (the star chart) install their own. */
+  projector: LabelProjector | null = null;
 
   constructor() {
     this.element = document.createElement('div');
@@ -109,7 +118,8 @@ export class LabelLayer {
 
     for (const entry of this.entries.values()) {
       const { spec } = entry;
-      camera.project(spec.position, projected);
+      if (this.projector) this.projector(spec.position, projected);
+      else camera.project(spec.position, projected);
 
       if (!projected.visible) {
         entry.el.style.opacity = '0';
@@ -152,5 +162,6 @@ export class LabelLayer {
     for (const entry of this.entries.values()) entry.el.remove();
     this.entries.clear();
     this.lastDetail.clear();
+    this.projector = null;
   }
 }

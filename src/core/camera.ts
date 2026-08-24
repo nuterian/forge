@@ -121,7 +121,9 @@ export class OrbitCamera {
 
       // Zoomed-in sky panning must slow down with the field of view, or a
       // pixel of mouse movement flings the view across whole constellations.
-      const speed = this.rotateSpeed * (this.lookOut ? this.fov / (42 * DEG) : 1);
+      // Capped: at whole-sky zoom the pan shouldn't spin like a top.
+      const speed =
+        this.rotateSpeed * (this.lookOut ? clamp(this.fov / (42 * DEG), 0.3, 2.6) : 1);
       this.yaw -= dx * speed;
       // Stop just shy of the poles: at exactly ±90° the up vector degenerates.
       this.pitch = clamp(this.pitch + dy * speed, -1.5, 1.5);
@@ -244,7 +246,9 @@ export class OrbitCamera {
     }
 
     mat4.lookAt(this.view, this.position, lookTarget, UP);
-    mat4.perspective(this.projection, this.fov, aspect, this.near, this.far);
+    // Chart chapters push fov beyond what a perspective matrix can express
+    // (their CPU projection reads this.fov directly); keep the matrix sane.
+    mat4.perspective(this.projection, Math.min(this.fov, 2.4), aspect, this.near, this.far);
     mat4.multiply(this.viewProjection, this.projection, this.view);
     quat.fromTargetTo(this.orientation, this.position, lookTarget, UP);
   }

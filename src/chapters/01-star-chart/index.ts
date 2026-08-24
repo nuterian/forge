@@ -10,7 +10,7 @@
  */
 
 import type { ChapterContext, ChapterInstance } from '../../app/chapter.ts';
-import { DEG, vec3, mat4, type Vec3 } from '../../core/math.ts';
+import { DEG, clamp, vec3, type Vec3 } from '../../core/math.ts';
 import { Raster, type RGB } from '../../core/raster.ts';
 import { RasterBlitter } from '../../gl/blit.ts';
 import { hexToVec3 } from '../../ui/palette.ts';
@@ -39,8 +39,12 @@ export function create(ctx: ChapterContext): ChapterInstance {
   print.settings.vignette = 0.65;
 
   // Sky viewing: eye at the centre, drag pans, wheel zooms the FOV.
+  // The zoom range runs far past what a perspective matrix could show — the
+  // chart's own azimuthal projection (below) handles the wide end.
   camera.lookOut = true;
-  camera.fov = 55 * DEG;
+  camera.minFov = 30 * DEG;
+  camera.maxFov = 7.6; // radians of chart width: the whole sphere, plus margin
+  camera.fov = 110 * DEG;
   camera.focus(vec3.create(0, 0, 0));
 
   const settings: Settings = {
@@ -68,7 +72,11 @@ export function create(ctx: ChapterContext): ChapterInstance {
   const ink = (i: number): RGB => inkRgb[((i % inkRgb.length) + inkRgb.length) % inkRgb.length]!;
 
   // -- CPU projection -------------------------------------------------------
-  // The one matrix multiply the GPU usually hides, spelled out per star.
+  // An azimuthal equidistant projection — the planisphere. A direction's
+  // angular distance from the view centre becomes radial distance on the
+  // chart, so zooming out never clips: at full zoom-out the entire celestial
+  // sphere is one circle, the antipode stretched around its rim. This is the
+  // projection real star charts use, computed per point by hand.
 
   interface Projected {
     x: number;
@@ -76,25 +84,60 @@ export function create(ctx: ChapterContext): ChapterInstance {
     visible: boolean;
   }
 
+  // View basis, pulled from the camera's view matrix each frame.
+  const basisRight = vec3.create();
+  const basisUp = vec3.create();
+  const basisForward = vec3.create();
+
+  const updateBasis = (): void => {
+    const v = camera.view;
+    vec3.set(basisRight, v[0]!, v[4]!, v[8]!);
+    vec3.set(basisUp, v[1]!, v[5]!, v[9]!);
+    vec3.set(basisForward, -v[2]!, -v[6]!, -v[10]!);
+  };
+
+  /** The chart circle's radius, as a fraction of the frame's short side. */
+  const CHART_EXTENT = 0.46;
+
+  /** Project a unit direction into normalized [0,1]² screen coords. */
+  const projectNorm = (dir: Vec3, out: Projected): void => {
+    const f = Math.min(1, Math.max(-1, vec3.dot(dir, basisForward)));
+    const rx = vec3.dot(dir, basisRight);
+    const ry = vec3.dot(dir, basisUp);
+
+    const theta = Math.acos(f);
+    const halfFov = camera.fov / 2;
+    const s = (theta / halfFov) * CHART_EXTENT;
+
+    const sinT = Math.hypot(rx, ry);
+    const ux = sinT > 1e-6 ? rx / sinT : 0;
+    const uy = sinT > 1e-6 ? ry / sinT : 0;
+
+    // s is a fraction of the short side; convert per axis.
+    const aspectX = Math.min(1, height / width);
+    const aspectY = Math.min(1, width / height);
+    out.x = 0.5 + ux * s * aspectX;
+    out.y = 0.5 - uy * s * aspectY;
+    out.visible =
+      theta < Math.PI * 0.999 &&
+      out.x >= -0.18 && out.x <= 1.18 && out.y >= -0.18 && out.y <= 1.18;
+  };
+
   const projectDir = (dir: Vec3, out: Projected): void => {
-    const m = camera.viewProjection;
-    const x = dir[0]! * SPHERE_RADIUS;
-    const y = dir[1]! * SPHERE_RADIUS;
-    const z = dir[2]! * SPHERE_RADIUS;
-    const cw = m[3]! * x + m[7]! * y + m[11]! * z + m[15]!;
-    if (cw <= 1e-6) {
-      out.visible = false;
-      return;
-    }
-    const cx = (m[0]! * x + m[4]! * y + m[8]! * z + m[12]!) / cw;
-    const cy = (m[1]! * x + m[5]! * y + m[9]! * z + m[13]!) / cw;
-    out.x = (cx * 0.5 + 0.5) * raster.width;
-    out.y = (1 - (cy * 0.5 + 0.5)) * raster.height;
-    out.visible = cx >= -1.15 && cx <= 1.15 && cy >= -1.15 && cy <= 1.15;
+    projectNorm(dir, out);
+    out.x *= raster.width;
+    out.y *= raster.height;
   };
 
   const pa: Projected = { x: 0, y: 0, visible: false };
   const pb: Projected = { x: 0, y: 0, visible: false };
+
+  // Labels follow the same chart, not the camera's perspective matrix.
+  const labelDir = vec3.create();
+  labels.projector = (position, out) => {
+    vec3.normalize(labelDir, position);
+    projectNorm(labelDir, out);
+  };
 
   // -- drawing your own constellations --------------------------------------
 
@@ -103,18 +146,31 @@ export function create(ctx: ChapterContext): ChapterInstance {
   let activeChain: number[] | null = null;
 
   const pickStar = (clientX: number, clientY: number): number => {
-    // Invert the projection: pointer → ray → nearest bright-ish star.
+    // Invert the chart: pointer → chart radius/angle → direction on the sphere.
     const rect = canvas.getBoundingClientRect();
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
+    updateBasis();
 
-    const inv = mat4.invert(mat4.create(), camera.viewProjection);
-    if (!inv) return -1;
-    const far = vec3.transformMat4(vec3.create(), vec3.create(ndcX, ndcY, 1), inv);
-    const rayDir = vec3.normalize(far, vec3.sub(far, far, camera.position));
+    const nx = (clientX - rect.left) / rect.width - 0.5;
+    const ny = 0.5 - (clientY - rect.top) / rect.height;
+    const sx = nx / Math.min(1, height / width);
+    const sy = ny / Math.min(1, width / height);
+    const s = Math.hypot(sx, sy);
 
+    const halfFov = camera.fov / 2;
+    const theta = (s / CHART_EXTENT) * halfFov;
+    if (theta > Math.PI) return -1; // clicked outside the sphere
+
+    const ux = s > 1e-6 ? sx / s : 0;
+    const uy = s > 1e-6 ? sy / s : 0;
+    const sinT = Math.sin(theta);
+    const rayDir = vec3.create();
+    vec3.scaleAndAdd(rayDir, rayDir, basisForward, Math.cos(theta));
+    vec3.scaleAndAdd(rayDir, rayDir, basisRight, ux * sinT);
+    vec3.scaleAndAdd(rayDir, rayDir, basisUp, uy * sinT);
+
+    // The pick radius grows with the zoom-out, in chart terms.
     let best = -1;
-    let bestDot = Math.cos(3.5 * DEG * (camera.fov / (55 * DEG)));
+    let bestDot = Math.cos(3.5 * DEG * Math.max(1, camera.fov / (110 * DEG)));
     for (let i = 0; i < model.stars.length; i++) {
       const star = model.stars[i]!;
       if (star.mag < 0.4) continue; // faint dust isn't clickable
@@ -254,8 +310,9 @@ export function create(ctx: ChapterContext): ChapterInstance {
 
       const color = star.tint >= 0 ? ink(star.tint) : lineRgb;
       // Radius follows magnitude; the zoom widens stars a little so the sky
-      // feels closer, not just cropped.
-      const zoom = (55 * DEG) / camera.fov;
+      // feels closer, not just cropped — clamped so the whole-sphere view
+      // still resolves individual points.
+      const zoom = clamp((110 * DEG) / camera.fov, 0.3, 2.4);
       const radius = (0.4 + star.mag * star.mag * 2.6) * Math.sqrt(zoom);
 
       // Faint stars shimmer; bright ones hold steady, like real seeing.
@@ -340,6 +397,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
       const scale = Math.min(1, MAX_RASTER_WIDTH / width);
       raster.resize(Math.round(width * scale), Math.round(height * scale));
 
+      updateBasis();
       raster.clear(paperRgb);
       if (settings.graticule) drawGraticule();
       drawStars();
@@ -360,7 +418,10 @@ export function create(ctx: ChapterContext): ChapterInstance {
       canvas.style.cursor = 'grab';
       camera.inputEnabled = true;
       camera.lookOut = false;
+      camera.minFov = 18 * DEG;
+      camera.maxFov = 70 * DEG;
       camera.fov = 42 * DEG;
+      labels.projector = null;
       blitter.dispose();
     },
   };
