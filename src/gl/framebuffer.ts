@@ -61,6 +61,17 @@ export class Framebuffer {
 
     const gl = this.gl;
 
+    // texStorage2D allocates *immutable* storage — calling it twice on the
+    // same texture is INVALID_OPERATION and silently does nothing, which
+    // would leave the resolve texture stuck at its first-ever size while the
+    // MSAA renderbuffers below keep resizing correctly. The fix is the
+    // standard one: on every real resize, throw the texture away and make a
+    // fresh one, sized right from the start.
+    gl.deleteTexture(this.texture);
+    const tex = gl.createTexture();
+    if (!tex) throw new Error('Framebuffer: texture reallocation failed');
+    this.texture = tex;
+
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.texStorage2D(gl.TEXTURE_2D, 1, this.internalFormat, w, h);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.filter);

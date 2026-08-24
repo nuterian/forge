@@ -3,12 +3,9 @@
  * Hand-rolled on purpose: the fundamentals are the showcase.
  */
 
-export type Vec2 = Float32Array;
 export type Vec3 = Float32Array;
-export type Vec4 = Float32Array;
 export type Mat3 = Float32Array;
 export type Mat4 = Float32Array;
-export type Quat = Float32Array;
 
 export const DEG = Math.PI / 180;
 export const RAD = 180 / Math.PI;
@@ -23,19 +20,6 @@ export const smoothstep = (e0: number, e1: number, x: number) => {
 /** Frame-rate independent exponential approach: rate = fraction remaining after 1s. */
 export const damp = (a: number, b: number, rate: number, dt: number) =>
   lerp(a, b, 1 - Math.pow(rate, dt));
-
-// ---------------------------------------------------------------------------
-// vec2
-// ---------------------------------------------------------------------------
-
-export const vec2 = {
-  create(x = 0, y = 0): Vec2 {
-    const o = new Float32Array(2);
-    o[0] = x;
-    o[1] = y;
-    return o;
-  },
-};
 
 // ---------------------------------------------------------------------------
 // vec3
@@ -153,17 +137,6 @@ export const vec3 = {
     return o;
   },
 
-  /** Treats `a` as a point (w = 1) and divides by w. */
-  transformMat4(o: Vec3, a: Vec3, m: Mat4): Vec3 {
-    const x = a[0],
-      y = a[1],
-      z = a[2];
-    const w = m[3] * x + m[7] * y + m[11] * z + m[15] || 1;
-    o[0] = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w;
-    o[1] = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w;
-    o[2] = (m[2] * x + m[6] * y + m[10] * z + m[14]) / w;
-    return o;
-  },
 
   /** Rotation only — ignores translation, no w divide. */
   transformDirMat4(o: Vec3, a: Vec3, m: Mat4): Vec3 {
@@ -176,24 +149,6 @@ export const vec3 = {
     return o;
   },
 
-  transformQuat(o: Vec3, a: Vec3, q: Quat): Vec3 {
-    const x = a[0],
-      y = a[1],
-      z = a[2];
-    const qx = q[0],
-      qy = q[1],
-      qz = q[2],
-      qw = q[3];
-    // t = 2 * cross(q.xyz, v)
-    const tx = 2 * (qy * z - qz * y);
-    const ty = 2 * (qz * x - qx * z);
-    const tz = 2 * (qx * y - qy * x);
-    // v + qw * t + cross(q.xyz, t)
-    o[0] = x + qw * tx + (qy * tz - qz * ty);
-    o[1] = y + qw * ty + (qz * tx - qx * tz);
-    o[2] = z + qw * tz + (qx * ty - qy * tx);
-    return o;
-  },
 };
 
 // ---------------------------------------------------------------------------
@@ -344,41 +299,7 @@ export const mat4 = {
     return o;
   },
 
-  fromQuat(o: Mat4, q: Quat): Mat4 {
-    const x = q[0], y = q[1], z = q[2], w = q[3];
-    const x2 = x + x, y2 = y + y, z2 = z + z;
-    const xx = x * x2, xy = x * y2, xz = x * z2;
-    const yy = y * y2, yz = y * z2, zz = z * z2;
-    const wx = w * x2, wy = w * y2, wz = w * z2;
 
-    o[0] = 1 - (yy + zz);
-    o[1] = xy + wz;
-    o[2] = xz - wy;
-    o[3] = 0;
-    o[4] = xy - wz;
-    o[5] = 1 - (xx + zz);
-    o[6] = yz + wx;
-    o[7] = 0;
-    o[8] = xz + wy;
-    o[9] = yz - wx;
-    o[10] = 1 - (xx + yy);
-    o[11] = 0;
-    o[12] = o[13] = o[14] = 0;
-    o[15] = 1;
-    return o;
-  },
-
-  /** Compose translation * rotation * uniform-ish scale in one shot. */
-  compose(o: Mat4, pos: Vec3, rot: Quat, scl: Vec3): Mat4 {
-    mat4.fromQuat(o, rot);
-    o[0] *= scl[0]; o[1] *= scl[0]; o[2] *= scl[0];
-    o[4] *= scl[1]; o[5] *= scl[1]; o[6] *= scl[1];
-    o[8] *= scl[2]; o[9] *= scl[2]; o[10] *= scl[2];
-    o[12] = pos[0];
-    o[13] = pos[1];
-    o[14] = pos[2];
-    return o;
-  },
 
   translate(o: Mat4, a: Mat4, x: number, y: number, z: number): Mat4 {
     if (o !== a) o.set(a);
@@ -543,140 +464,5 @@ export const mat4 = {
     o[1] = m[13];
     o[2] = m[14];
     return o;
-  },
-};
-
-// ---------------------------------------------------------------------------
-// quat
-// ---------------------------------------------------------------------------
-
-export const quat = {
-  create(): Quat {
-    const o = new Float32Array(4);
-    o[3] = 1;
-    return o;
-  },
-
-  identity(o: Quat): Quat {
-    o[0] = o[1] = o[2] = 0;
-    o[3] = 1;
-    return o;
-  },
-
-  copy(o: Quat, a: Quat): Quat {
-    o.set(a);
-    return o;
-  },
-
-  setAxisAngle(o: Quat, axis: Vec3, rad: number): Quat {
-    const h = rad * 0.5;
-    const s = Math.sin(h);
-    o[0] = axis[0] * s;
-    o[1] = axis[1] * s;
-    o[2] = axis[2] * s;
-    o[3] = Math.cos(h);
-    return o;
-  },
-
-  /** o = a * b — applies b's rotation, then a's. */
-  multiply(o: Quat, a: Quat, b: Quat): Quat {
-    const ax = a[0], ay = a[1], az = a[2], aw = a[3];
-    const bx = b[0], by = b[1], bz = b[2], bw = b[3];
-    o[0] = ax * bw + aw * bx + ay * bz - az * by;
-    o[1] = ay * bw + aw * by + az * bx - ax * bz;
-    o[2] = az * bw + aw * bz + ax * by - ay * bx;
-    o[3] = aw * bw - ax * bx - ay * by - az * bz;
-    return o;
-  },
-
-  normalize(o: Quat, a: Quat): Quat {
-    const l = Math.hypot(a[0], a[1], a[2], a[3]);
-    if (l > 0) {
-      const inv = 1 / l;
-      o[0] = a[0] * inv;
-      o[1] = a[1] * inv;
-      o[2] = a[2] * inv;
-      o[3] = a[3] * inv;
-    } else {
-      quat.identity(o);
-    }
-    return o;
-  },
-
-  /** Yaw about +Y, then pitch about the resulting +X. */
-  fromYawPitch(o: Quat, yaw: number, pitch: number): Quat {
-    const cy = Math.cos(yaw * 0.5), sy = Math.sin(yaw * 0.5);
-    const cp = Math.cos(pitch * 0.5), sp = Math.sin(pitch * 0.5);
-    // qYaw * qPitch
-    o[0] = cy * sp;
-    o[1] = sy * cp;
-    o[2] = -sy * sp;
-    o[3] = cy * cp;
-    return o;
-  },
-
-  /** Shortest-arc spherical interpolation, falling back to nlerp when nearly parallel. */
-  slerp(o: Quat, a: Quat, b: Quat, t: number): Quat {
-    let ax = a[0], ay = a[1], az = a[2], aw = a[3];
-    let bx = b[0], by = b[1], bz = b[2], bw = b[3];
-
-    let cosom = ax * bx + ay * by + az * bz + aw * bw;
-    if (cosom < 0) {
-      cosom = -cosom;
-      bx = -bx; by = -by; bz = -bz; bw = -bw;
-    }
-
-    let scale0: number, scale1: number;
-    if (1.0 - cosom > 1e-6) {
-      const omega = Math.acos(cosom);
-      const sinom = Math.sin(omega);
-      scale0 = Math.sin((1.0 - t) * omega) / sinom;
-      scale1 = Math.sin(t * omega) / sinom;
-    } else {
-      scale0 = 1.0 - t;
-      scale1 = t;
-    }
-
-    o[0] = scale0 * ax + scale1 * bx;
-    o[1] = scale0 * ay + scale1 * by;
-    o[2] = scale0 * az + scale1 * bz;
-    o[3] = scale0 * aw + scale1 * bw;
-    return o;
-  },
-
-  /** Rotation taking +Z to point from `target` toward `eye` (matches mat4.targetTo). */
-  fromTargetTo(o: Quat, eye: Vec3, target: Vec3, up: Vec3): Quat {
-    const m = mat4.targetTo(mat4.create(), eye, target, up);
-    return quat.fromMat4(o, m);
-  },
-
-  fromMat4(o: Quat, m: Mat4): Quat {
-    const trace = m[0] + m[5] + m[10];
-    if (trace > 0) {
-      const s = Math.sqrt(trace + 1.0) * 2;
-      o[3] = 0.25 * s;
-      o[0] = (m[6] - m[9]) / s;
-      o[1] = (m[8] - m[2]) / s;
-      o[2] = (m[1] - m[4]) / s;
-    } else if (m[0] > m[5] && m[0] > m[10]) {
-      const s = Math.sqrt(1.0 + m[0] - m[5] - m[10]) * 2;
-      o[3] = (m[6] - m[9]) / s;
-      o[0] = 0.25 * s;
-      o[1] = (m[1] + m[4]) / s;
-      o[2] = (m[8] + m[2]) / s;
-    } else if (m[5] > m[10]) {
-      const s = Math.sqrt(1.0 + m[5] - m[0] - m[10]) * 2;
-      o[3] = (m[8] - m[2]) / s;
-      o[0] = (m[1] + m[4]) / s;
-      o[1] = 0.25 * s;
-      o[2] = (m[6] + m[9]) / s;
-    } else {
-      const s = Math.sqrt(1.0 + m[10] - m[0] - m[5]) * 2;
-      o[3] = (m[1] - m[4]) / s;
-      o[0] = (m[8] + m[2]) / s;
-      o[1] = (m[6] + m[9]) / s;
-      o[2] = 0.25 * s;
-    }
-    return quat.normalize(o, o);
   },
 };

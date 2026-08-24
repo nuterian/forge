@@ -33,10 +33,14 @@ export function createContext(canvas: HTMLCanvasElement): GLContext {
 /**
  * Match the drawing buffer to the CSS size. Caps DPR because a 3x retina
  * display at full resolution costs more than the look gains.
+ *
+ * Accepts an already-measured rect so a caller doing its own layout read
+ * this frame (e.g. for label placement) doesn't force a second one — two
+ * getBoundingClientRect() calls a frame, 60 times a second, adds up for
+ * nothing.
  */
-export function resizeToDisplay(ctx: GLContext, maxDpr = 2): boolean {
+export function resizeToDisplay(ctx: GLContext, rect: DOMRect, maxDpr = 2): boolean {
   const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
-  const rect = ctx.canvas.getBoundingClientRect();
   const w = Math.max(1, Math.round(rect.width * dpr));
   const h = Math.max(1, Math.round(rect.height * dpr));
 

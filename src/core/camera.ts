@@ -1,15 +1,13 @@
 /**
- * An orbit camera driven by quaternions, with framerate-independent damping.
- *
- * Orientation is stored as yaw/pitch (which is what a mouse actually produces)
- * but every transition — refocusing on a planet, handing control to a spline
- * tour and taking it back — is a quaternion slerp, so the camera never gimbals
- * or takes the long way round.
+ * The shared orbit camera: yaw/pitch/distance around a pivot, with
+ * framerate-independent damping on every transition — refocusing on a planet,
+ * handing control to a spline tour and taking it back — so the view eases
+ * rather than jumps.
  */
 
 import {
-  DEG, clamp, damp, mat4, quat, vec3,
-  type Mat4, type Quat, type Vec3,
+  DEG, clamp, damp, mat4, vec3,
+  type Mat4, type Vec3,
 } from './math.ts';
 
 export type CameraMode = 'orbit' | 'scripted';
@@ -41,7 +39,6 @@ export class OrbitCamera {
   readonly view: Mat4 = mat4.create();
   readonly projection: Mat4 = mat4.create();
   readonly viewProjection: Mat4 = mat4.create();
-  readonly orientation: Quat = quat.create();
 
   mode: CameraMode = 'orbit';
 
@@ -250,7 +247,6 @@ export class OrbitCamera {
     // (their CPU projection reads this.fov directly); keep the matrix sane.
     mat4.perspective(this.projection, Math.min(this.fov, 2.4), aspect, this.near, this.far);
     mat4.multiply(this.viewProjection, this.projection, this.view);
-    quat.fromTargetTo(this.orientation, this.position, lookTarget, UP);
   }
 
   private readonly lookAhead: Vec3 = vec3.create();

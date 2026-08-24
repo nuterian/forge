@@ -7,6 +7,7 @@
  */
 
 import { vec3, type Vec3 } from '../core/math.ts';
+import type { RGB } from '../core/raster.ts';
 
 export interface Palette {
   id: string;
@@ -72,7 +73,17 @@ export function mixHex(a: string, b: string, t: number): string {
   )}`;
 }
 
-/** A resolved palette with GPU-ready vectors, cached per palette id. */
+/** #rrggbb → an RGB triple in 0–255, for the CPU rasterizer. */
+function hexToRgb255(hex: string): RGB {
+  const v = hexToVec3(hex);
+  return [v[0]! * 255, v[1]! * 255, v[2]! * 255];
+}
+
+/**
+ * A resolved palette, cached per palette id: GPU-ready vec3s in 0–1 for
+ * shaders, and RGB triples in 0–255 for any chapter using core/raster's
+ * software rasterizer (ch.1 now; ch.6's poster mode later).
+ */
 export class InkSet {
   readonly palette: Palette;
   readonly paper: Vec3;
@@ -80,12 +91,20 @@ export class InkSet {
   readonly line: Vec3;
   readonly inks: Vec3[];
 
+  readonly paperRgb: RGB;
+  readonly lineRgb: RGB;
+  private readonly inksRgb: RGB[];
+
   constructor(palette: Palette) {
     this.palette = palette;
     this.paper = hexToVec3(palette.paper);
     this.shadow = hexToVec3(palette.shadow);
     this.line = hexToVec3(palette.line);
     this.inks = palette.inks.map((c) => hexToVec3(c));
+
+    this.paperRgb = hexToRgb255(palette.paper);
+    this.lineRgb = hexToRgb255(palette.line);
+    this.inksRgb = palette.inks.map(hexToRgb255);
   }
 
   /** Wraps, so callers can index by an arbitrary body number. */
@@ -96,6 +115,11 @@ export class InkSet {
   hex(index: number): string {
     const inks = this.palette.inks;
     return inks[((index % inks.length) + inks.length) % inks.length]!;
+  }
+
+  /** Same wrap-around indexing as ink(), as a 0–255 RGB triple. */
+  rgb(index: number): RGB {
+    return this.inksRgb[((index % this.inksRgb.length) + this.inksRgb.length) % this.inksRgb.length]!;
   }
 }
 

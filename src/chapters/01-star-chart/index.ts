@@ -13,7 +13,6 @@ import type { ChapterContext, ChapterInstance } from '../../app/chapter.ts';
 import { DEG, clamp, vec3, type Vec3 } from '../../core/math.ts';
 import { Raster, type RGB } from '../../core/raster.ts';
 import { RasterBlitter } from '../../gl/blit.ts';
-import { hexToVec3 } from '../../ui/palette.ts';
 import type { LabelSpec } from '../../ui/labels.ts';
 import { generateSky, type SkyModel } from './sky.ts';
 
@@ -60,16 +59,12 @@ export function create(ctx: ChapterContext): ChapterInstance {
   const raster = new Raster(4, 4);
   const blitter = new RasterBlitter(gl);
 
-  // -- ink lookup tables (Uint8 RGB for the raster) -------------------------
-
-  const toRgb = (hex: string): RGB => {
-    const v = hexToVec3(hex);
-    return [v[0]! * 255, v[1]! * 255, v[2]! * 255];
-  };
-  const paperRgb = toRgb(inks.palette.paper);
-  const lineRgb = toRgb(inks.palette.line);
-  const inkRgb: RGB[] = inks.palette.inks.map(toRgb);
-  const ink = (i: number): RGB => inkRgb[((i % inkRgb.length) + inkRgb.length) % inkRgb.length]!;
+  // The raster works in 0-255 RGB triples; InkSet caches those conversions
+  // once so every CPU-drawing chapter (this one, ch.6's poster mode) shares
+  // the same palette resolution instead of re-deriving it.
+  const paperRgb = inks.paperRgb;
+  const lineRgb = inks.lineRgb;
+  const ink = (i: number): RGB => inks.rgb(i);
 
   // -- CPU projection -------------------------------------------------------
   // An azimuthal equidistant projection — the planisphere. A direction's

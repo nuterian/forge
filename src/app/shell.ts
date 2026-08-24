@@ -74,7 +74,7 @@ export class Shell {
     }
 
     registerChunks();
-    resizeToDisplay(this.ctx);
+    resizeToDisplay(this.ctx, this.ctx.canvas.getBoundingClientRect());
 
     const gl = this.ctx.gl;
     this.framebuffer = new Framebuffer(gl, this.ctx.width, this.ctx.height, {
@@ -400,7 +400,11 @@ export class Shell {
   private frame(dt: number, elapsed: number): void {
     const gl = this.ctx.gl;
 
-    if (resizeToDisplay(this.ctx)) {
+    // One layout read for the whole frame — resize and label placement both
+    // need it, and getBoundingClientRect() is not free at 60fps.
+    const rect = this.ctx.canvas.getBoundingClientRect();
+
+    if (resizeToDisplay(this.ctx, rect)) {
       this.framebuffer.resize(this.ctx.width, this.ctx.height);
       this.chapter?.resize?.(this.ctx.width, this.ctx.height);
     }
@@ -426,7 +430,6 @@ export class Shell {
       this.print.render(this.framebuffer, this.ctx.width, this.ctx.height, elapsed);
     }
 
-    const rect = this.ctx.canvas.getBoundingClientRect();
     this.labels.update(this.camera, rect.width, rect.height);
     this.chapterPanel?.refresh();
   }
