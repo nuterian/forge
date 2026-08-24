@@ -8,9 +8,21 @@
 import { DEG, TAU, vec3, type Vec3 } from '../../core/math.ts';
 import { bodyName, starName } from '../../core/names.ts';
 import type { Rng } from '../../core/rng.ts';
-import type { Program } from '../../gl/program.ts';
+import { Framebuffer } from '../../gl/framebuffer.ts';
+import { fullscreenTriangle } from '../../gl/geometry.ts';
+import { Program, registerChunk } from '../../gl/program.ts';
 import type { InkSet } from '../../ui/palette.ts';
 import type { OrbitalElements } from '../../core/kepler.ts';
+
+import fieldsChunk from './shaders/fields.glsl?raw';
+import bakeVert from '../../shaders/post.vert?raw';
+import bakeFrag from './shaders/bake.frag?raw';
+
+// The noise fields are one piece of GLSL with two readers — the bake pass
+// below, and (should chapter 6 ever want a field value on the fly) anything
+// else that includes them. Registering at module scope means any Program
+// built after this module is imported can `#include <planet-fields>`.
+registerChunk('planet-fields', fieldsChunk);
 
 export interface MoonParams {
   name: string;
@@ -271,15 +283,12 @@ export function createRampTexture(
  */
 export function applyPlanetUniforms(program: Program, params: PlanetParams, inks: InkSet): void {
   program
-    .set('uNoiseOffset', params.noiseOffset)
-    .set('uContinentFreq', params.continentFreq)
-    .set('uWarp', params.warp)
-    .set('uReliefFreq', params.reliefFreq)
+    // The noise frequencies are gone: they were baked into the field map, and
+    // everything left here is something a control can still move.
     .set('uReliefAmp', params.reliefAmp)
     .set('uSeaLevel', params.seaLevel)
     .set('uIceCap', params.iceCap)
     .set('uCloudCover', params.cloudCover)
-    .set('uCloudFreq', params.cloudFreq)
     .set('uAtmosphere', params.atmosphere)
     .set('uRampTexels', RAMP_TEXELS)
     .set('uInkShadow', inks.shadow)
@@ -287,4 +296,69 @@ export function applyPlanetUniforms(program: Program, params: PlanetParams, inks
     .set('uInkCloud', inks.ink(0))
     .set('uInkGlint', inks.ink(0))
     .set('uInkAtmo', inks.ink(params.scheme.atmo));
+}
+
+// -- the baked field map ------------------------------------------------------
+
+/**
+ * The map's size. An equirectangular map wants twice the width of its height,
+ * and this is the resolution at which the finest relief octave still lands
+ * roughly two texels wide — the bump reads it, so undersampling it shows.
+ */
+export const FIELD_MAP_WIDTH = 1024;
+export const FIELD_MAP_HEIGHT = FIELD_MAP_WIDTH / 2;
+
+/** The seed's noise parameters — the bake pass's entire input. */
+function applyFieldUniforms(program: Program, params: PlanetParams): void {
+  program
+    .set('uNoiseOffset', params.noiseOffset)
+    .set('uContinentFreq', params.continentFreq)
+    .set('uWarp', params.warp)
+    .set('uReliefFreq', params.reliefFreq)
+    .set('uReliefAmp', params.reliefAmp)
+    .set('uCloudFreq', params.cloudFreq);
+}
+
+/**
+ * Roll the seed's static fields into an equirectangular map, once.
+ *
+ * Height, relief and cloud cost about twenty-nine octaves of value noise
+ * between them, and none of them changes after the seed is drawn — so paying
+ * for them per fragment per frame was paying for the same answer sixty times a
+ * second. One offscreen fullscreen pass at load answers them for good; every
+ * control the panel exposes still runs live against the result.
+ *
+ * The caller owns the returned target and must dispose it. Its texture wraps
+ * in u, because the map's left and right edges are the same meridian, and
+ * clamps in v.
+ */
+export function bakePlanetFields(gl: WebGL2RenderingContext, params: PlanetParams): Framebuffer {
+  const target = new Framebuffer(gl, FIELD_MAP_WIDTH, FIELD_MAP_HEIGHT, {
+    samples: 0,
+    depth: false,
+    filter: gl.LINEAR,
+  });
+  const program = new Program(gl, bakeVert, bakeFrag, 'worldsmith.bake');
+  const quad = fullscreenTriangle(gl);
+
+  target.bind();
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
+  gl.disable(gl.CULL_FACE);
+  program.use();
+  applyFieldUniforms(program, params);
+  quad.draw();
+
+  // Set once, after the render: Framebuffer only recreates its texture on a
+  // resize, and this target never resizes.
+  gl.bindTexture(gl.TEXTURE_2D, target.texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  program.dispose();
+  quad.dispose();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.enable(gl.CULL_FACE);
+  return target;
 }

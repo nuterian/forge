@@ -24,7 +24,7 @@ import { meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from '.
 import { SURFACE_STYLE_ID } from '../../scene/body.ts';
 import { GlowBillboard } from '../../scene/glow.ts';
 import { SkyPass } from '../../scene/sky.ts';
-import { applyPlanetUniforms, classifyPlanet, createRampTexture, generatePlanet, generateStar } from './planet.ts';
+import { applyPlanetUniforms, bakePlanetFields, classifyPlanet, createRampTexture, generatePlanet, generateStar } from './planet.ts';
 
 import planetVert from './shaders/planet.vert?raw';
 import planetFrag from './shaders/planet.frag?raw';
@@ -86,6 +86,10 @@ export function create(ctx: ChapterContext): ChapterInstance {
     ? toMesh(gl, ringAnnulus(params.rings.inner, params.rings.outer, 160))
     : null;
   const rampTexture = createRampTexture(gl, params, inks);
+  // The seed's noise fields, evaluated once here instead of ~29 octaves per
+  // fragment per frame. Sliders all work against the result, so none of them
+  // costs a re-bake.
+  const fields = bakePlanetFields(gl, params);
 
   // The orbit trace, sampled by mean anomaly so the ribbon's parameter is
   // linear in time — which is what lets the shader fade a trail behind the
@@ -346,7 +350,8 @@ export function create(ctx: ChapterContext): ChapterInstance {
       .set('uBands', settings.bands)
       .set('uSoftness', settings.softness)
       .set('uFilterMode', settings.filterMode)
-      .setTexture('uRamp', rampTexture, 0);
+      .setTexture('uRamp', rampTexture, 0)
+      .setTexture('uFields', fields.texture, 1);
     applyPlanetUniforms(planetProgram, params, inks);
     planetMesh.draw();
 
@@ -471,6 +476,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
       moonMesh?.dispose();
       ringMesh?.dispose();
       gl.deleteTexture(rampTexture);
+      fields.dispose();
     },
   };
 }

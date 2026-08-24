@@ -2,12 +2,17 @@
 precision highp float;
 
 // A whole world in one fragment shader — the 2015 seeded Perlin-terrain
-// generator, hand-rolled again and wrapped onto a sphere. Domain-warped FBM
-// carves continents, a ramp texture prints the biomes, the relief field bends
-// the normal in tangent space, and the shading model itself is a control.
+// generator, hand-rolled again and wrapped onto a sphere.
+//
+// The noise itself is no longer evaluated here: bake.frag rolls the seed's
+// static fields into an equirectangular map once at load (see fields.glsl),
+// and this shader reads them. Everything a control can still move stays
+// live — sea level relocates the coastline, the ramp prints the biomes, the
+// relief field bends the normal in tangent space, ice creeps, clouds drift,
+// and the shading model itself is a switch.
 //
 // Chapter 6 reuses this shader verbatim; everything seeded arrives as
-// uniforms via applyPlanetUniforms().
+// uniforms via applyPlanetUniforms() and the baked map.
 
 #include <math>
 #include <ink>
@@ -18,6 +23,9 @@ uniform mat3  uNormalMatrix;
 
 uniform sampler2D uRamp;    // 16×1 biome ramp: texels 0–7 ocean, 8–15 land
 uniform float uRampTexels;
+// The baked fields: R+G height, B relief, A cloud. LINEAR, no mips, wrapping
+// in u (the longitude seam) and clamped in v (the poles).
+uniform sampler2D uFields;
 
 uniform vec3  uInkShadow;
 uniform vec3  uInkIce;
@@ -25,15 +33,10 @@ uniform vec3  uInkCloud;
 uniform vec3  uInkAtmo;
 uniform vec3  uInkGlint;
 
-uniform vec3  uNoiseOffset;   // the seed, spatialized
-uniform float uContinentFreq;
-uniform float uWarp;
-uniform float uReliefFreq;
 uniform float uReliefAmp;
 uniform float uSeaLevel;
 uniform float uIceCap;        // polar cap extent in |latitude|, 0–0.45
 uniform float uCloudCover;
-uniform float uCloudFreq;
 uniform float uCloudDrift;    // radians the cloud deck has drifted
 uniform float uAtmosphere;
 
@@ -49,22 +52,39 @@ in vec3 vObjectPos;
 
 out vec4 fragColor;
 
-// --- the height field -------------------------------------------------------
+// --- the baked map ----------------------------------------------------------
 
-// Continents: FBM sampled through an FBM-warped domain. The warp is what
-// turns fractal blobs into coastlines that look weathered rather than noisy.
-float continents(vec3 p) {
-  vec3 q = vec3(
-    fbm(p, 3, 2.0, 0.5),
-    fbm(p + vec3(5.2, 1.3, 2.7), 3, 2.0, 0.5),
-    fbm(p + vec3(1.7, 9.2, 4.1), 3, 2.0, 0.5));
-  return fbm(p + q * uWarp * 2.0, 4, 2.05, 0.5);
+// Direction on the unit sphere → the map's coordinates. The inverse of
+// bake.frag's texel → direction. Nothing downstream ever takes a derivative of
+// this: u is discontinuous at the ±π seam even though the field it addresses
+// is not, so AA widths come from the sampled *values* instead.
+vec2 sphereUv(vec3 p) {
+  return vec2(atan(p.z, p.x) / TAU + 0.5, asin(clamp(p.y, -1.0, 1.0)) / PI + 0.5);
 }
 
-// Mountain-scale detail, kept separate so the bump normals can re-sample just
-// this term instead of the whole (much more expensive) height field.
-float relief(vec3 p) {
-  return fbm(p * uReliefFreq + uNoiseOffset.yzx, 4, 2.15, 0.55);
+// One height texel, decoded from its two bytes. texelFetch ignores the
+// sampler's wrap mode, so the wrap is done here: longitude comes back around,
+// latitude stops at the pole row.
+float heightTexel(ivec2 c) {
+  ivec2 size = textureSize(uFields, 0);
+  c.x = (c.x % size.x + size.x) % size.x;
+  c.y = clamp(c.y, 0, size.y - 1);
+  vec2 bytes = texelFetch(uFields, c, 0).rg;
+  return bytes.r + bytes.g / 255.0;
+}
+
+// Height, blended by hand. The hardware would filter the two bytes
+// independently — nonsense wherever the high byte steps — so the four texels
+// are decoded first and interpolated after. Relief and cloud have a channel
+// each and take plain hardware LINEAR.
+float heightAt(vec2 uv) {
+  vec2 t = uv * vec2(textureSize(uFields, 0)) - 0.5;
+  vec2 f = fract(t);
+  ivec2 b = ivec2(floor(t));
+  return mix(
+    mix(heightTexel(b), heightTexel(b + ivec2(1, 0)), f.x),
+    mix(heightTexel(b + ivec2(0, 1)), heightTexel(b + ivec2(1, 1)), f.x),
+    f.y);
 }
 
 // --- the biome ramp -----------------------------------------------------------
@@ -93,10 +113,11 @@ vec3 sampleRamp(float t) {
 
 void main() {
   vec3 p = normalize(vObjectPos);
+  vec2 uv = sphereUv(p);
 
   // --- elevation -----------------------------------------------------------
-  float r0 = relief(p);
-  float h = clamp(continents(p * uContinentFreq + uNoiseOffset) + (r0 - 0.5) * uReliefAmp, 0.0, 1.0);
+  float h = heightAt(uv);
+  float r0 = texture(uFields, uv).b;
 
   // Sea-relative ramp coordinate: sea level always maps to the ramp's ocean/
   // land boundary, so the slider moves coastlines, not colours.
@@ -118,9 +139,13 @@ void main() {
   surfInk = mix(surfInk, uInkIce, ice);
 
   // --- normal mapping in tangent space ---------------------------------------
-  // Build the sphere's tangent frame (east, north), re-sample the relief field
-  // a step along each axis, and tip the object-space normal by the slope. The
+  // Build the sphere's tangent frame (east, north), re-read the relief field a
+  // step along each axis, and tip the object-space normal by the slope. The
   // perturbed normal then goes through the same normal matrix as the vertex one.
+  //
+  // The taps are the same arc apart as they were when relief() was evaluated
+  // here directly; converting that arc into map coordinates is where the
+  // latitude divisor comes from (meridians crowd together toward the poles).
   vec3 eastRaw = cross(vec3(0.0, 1.0, 0.0), p);
   vec3 east = length(eastRaw) > 1e-4 ? normalize(eastRaw) : vec3(1.0, 0.0, 0.0);
   vec3 north = cross(p, east);
@@ -129,8 +154,12 @@ void main() {
   float bumpAmp = uReliefAmp * uRelief * land;
   if (bumpAmp > 1e-3) {
     const float EPS = 0.025;
-    float dE = relief(normalize(p + east * EPS)) - r0;
-    float dN = relief(normalize(p + north * EPS)) - r0;
+    float cosLat = max(sqrt(max(1.0 - p.y * p.y, 0.0)), 1e-3);
+    // east runs toward decreasing longitude, north toward increasing latitude.
+    float du = min(EPS / (TAU * cosLat), 0.25);
+    float dv = EPS / PI;
+    float dE = texture(uFields, vec2(uv.x - du, uv.y)).b - r0;
+    float dN = texture(uFields, vec2(uv.x, uv.y + dv)).b - r0;
     vec3 bumped = normalize(p - (east * dE + north * dN) * (bumpAmp * 0.55 / EPS));
     shadeN = normalize(uNormalMatrix * bumped);
   }
@@ -161,12 +190,11 @@ void main() {
   }
 
   // --- clouds ------------------------------------------------------------------
-  // A second noise field rotated independently of the surface, cut into hard
-  // shapes. Lit by the smooth sphere normal: the deck rides above the relief.
+  // The deck rotates independently of the surface. Baked undrifted, that
+  // rotation about Y is exactly a shift in longitude — one texture offset.
+  // Lit by the smooth sphere normal: the deck rides above the relief.
   if (uCloudCover > 1e-3) {
-    float ca = cos(uCloudDrift), sa = sin(uCloudDrift);
-    vec3 cp = vec3(ca * p.x - sa * p.z, p.y, sa * p.x + ca * p.z);
-    float cl = fbm(cp * uCloudFreq + uNoiseOffset.zxy, 4, 2.3, 0.55);
+    float cl = texture(uFields, vec2(uv.x + uCloudDrift / TAU, uv.y)).a;
     float threshold = 0.9 - uCloudCover * 0.7;
     float cloudAa = max(fwidth(cl) * 1.2, 0.004);
     float cloud = smoothstep(threshold, threshold + cloudAa, cl);
