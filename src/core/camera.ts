@@ -71,6 +71,15 @@ export class OrbitCamera {
   /** Set false while a tour is flying, so a stray drag doesn't fight it. */
   inputEnabled = true;
 
+  /**
+   * Look-out mode: the eye sits at the target and yaw/pitch aim the view
+   * outward — for sky-watching chapters. Dragging pans the sky and the wheel
+   * zooms the field of view instead of dollying.
+   */
+  lookOut = false;
+  minFov = 18 * DEG;
+  maxFov = 70 * DEG;
+
   constructor(opts: OrbitCameraOptions = {}) {
     this.fov = opts.fov ?? 42 * DEG;
     this.near = opts.near ?? 0.05;
@@ -110,9 +119,12 @@ export class OrbitCamera {
       this.lastX = pe.clientX;
       this.lastY = pe.clientY;
 
-      this.yaw -= dx * this.rotateSpeed;
+      // Zoomed-in sky panning must slow down with the field of view, or a
+      // pixel of mouse movement flings the view across whole constellations.
+      const speed = this.rotateSpeed * (this.lookOut ? this.fov / (42 * DEG) : 1);
+      this.yaw -= dx * speed;
       // Stop just shy of the poles: at exactly ±90° the up vector degenerates.
-      this.pitch = clamp(this.pitch + dy * this.rotateSpeed, -1.5, 1.5);
+      this.pitch = clamp(this.pitch + dy * speed, -1.5, 1.5);
       this.mode = 'orbit';
     };
 
@@ -130,7 +142,11 @@ export class OrbitCamera {
       // Exponential zoom: constant *proportional* change per notch, so zooming
       // feels the same whether you are at 1 unit or 500.
       const scale = Math.exp(we.deltaY * this.zoomSpeed);
-      this.distance = clamp(this.distance * scale, this.minDistance, this.maxDistance);
+      if (this.lookOut) {
+        this.fov = clamp(this.fov * scale, this.minFov, this.maxFov);
+      } else {
+        this.distance = clamp(this.distance * scale, this.minDistance, this.maxDistance);
+      }
       this.mode = 'orbit';
     };
 
@@ -196,6 +212,12 @@ export class OrbitCamera {
       return;
     }
     const cosPitch = Math.cos(this.pitch);
+    if (this.lookOut) {
+      // The target stays a fixed pivot; the eye sits on it. The yaw/pitch
+      // look direction is applied in update(), never accumulated here.
+      vec3.copy(this.desiredPosition, this.desiredTarget);
+      return;
+    }
     this.desiredPosition[0] = this.desiredTarget[0]! + this.distance * cosPitch * Math.sin(this.yaw);
     this.desiredPosition[1] = this.desiredTarget[1]! + this.distance * Math.sin(this.pitch);
     this.desiredPosition[2] = this.desiredTarget[2]! + this.distance * cosPitch * Math.cos(this.yaw);
@@ -212,11 +234,22 @@ export class OrbitCamera {
       this.target[i] = damp(this.target[i]!, this.desiredTarget[i]!, rate, dt);
     }
 
-    mat4.lookAt(this.view, this.position, this.target, UP);
+    let lookTarget = this.target;
+    if (this.lookOut && this.mode !== 'scripted') {
+      const cosPitch = Math.cos(this.pitch);
+      this.lookAhead[0] = this.position[0]! + cosPitch * Math.sin(this.yaw);
+      this.lookAhead[1] = this.position[1]! + Math.sin(this.pitch);
+      this.lookAhead[2] = this.position[2]! + cosPitch * Math.cos(this.yaw);
+      lookTarget = this.lookAhead;
+    }
+
+    mat4.lookAt(this.view, this.position, lookTarget, UP);
     mat4.perspective(this.projection, this.fov, aspect, this.near, this.far);
     mat4.multiply(this.viewProjection, this.projection, this.view);
-    quat.fromTargetTo(this.orientation, this.position, this.target, UP);
+    quat.fromTargetTo(this.orientation, this.position, lookTarget, UP);
   }
+
+  private readonly lookAhead: Vec3 = vec3.create();
 
   /** Distance from the eye — for depth-sorting transparent things. */
   distanceTo(point: Vec3): number {

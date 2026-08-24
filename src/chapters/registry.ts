@@ -19,7 +19,9 @@ export const CHAPTERS: ChapterDef[] = [
     ],
     api: 'webgl2',
     palette: 'cyanotype',
-    available: false,
+    seeded: true,
+    available: true,
+    load: () => import('./01-star-chart/index.ts'),
   },
   {
     id: 'orrery',
@@ -102,8 +104,6 @@ export const CHAPTERS: ChapterDef[] = [
     available: false,
   },
 ];
-
-export const DEFAULT_CHAPTER = 'orrery';
 
 export function findChapter(id: string): ChapterDef | undefined {
   return CHAPTERS.find((c) => c.id === id);

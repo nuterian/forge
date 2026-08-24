@@ -5,20 +5,23 @@
 
 import { Loop } from '../core/loop.ts';
 import { OrbitCamera } from '../core/camera.ts';
+import { Rng, randomSeedString } from '../core/rng.ts';
 import { createContext, maxSamples, resizeToDisplay, WebGLNotSupportedError, type GLContext } from '../gl/context.ts';
 import { registerChunks } from '../gl/chunks.ts';
 import { Framebuffer } from '../gl/framebuffer.ts';
-import { PrintPass } from '../gl/post.ts';
+import { PrintPass, DEFAULT_PRINT } from '../gl/post.ts';
+import { Gallery } from './gallery.ts';
 import { ControlPanel } from '../ui/controls.ts';
 import { LabelLayer } from '../ui/labels.ts';
 import {
   applyPaletteToCss, DEFAULT_PALETTE, InkSet, PALETTES,
   type Palette,
 } from '../ui/palette.ts';
-import { CHAPTERS, DEFAULT_CHAPTER, findChapter } from '../chapters/registry.ts';
+import { CHAPTERS, findChapter } from '../chapters/registry.ts';
 import type { ChapterDef, ChapterInstance } from './chapter.ts';
 
 interface Route {
+  /** Empty string routes to the gallery index. */
   chapterId: string;
   seed: string;
 }
@@ -38,7 +41,9 @@ export class Shell {
   private chapter: ChapterInstance | null = null;
   private chapterDef: ChapterDef | null = null;
   private chapterPanel: ControlPanel | null = null;
+  private currentSeed = '';
   private loadToken = 0;
+  private gallery: Gallery | null = null;
 
   // Chrome
   private hud!: HTMLElement;
@@ -129,6 +134,13 @@ export class Shell {
 
   private buildNav(): void {
     this.navEl.replaceChildren();
+
+    const home = document.createElement('a');
+    home.className = 'chapter-nav-link chapter-nav-home';
+    home.href = '#/';
+    home.innerHTML = `<span class="chapter-nav-rule"></span><span>Index</span>`;
+    this.navEl.append(home);
+
     for (const def of CHAPTERS) {
       const link = document.createElement('a');
       link.className = 'chapter-nav-link';
@@ -143,13 +155,30 @@ export class Shell {
     }
   }
 
-  private updateChrome(def: ChapterDef): void {
+  private updateChrome(def: ChapterDef, seed?: string): void {
     this.mastheadEl.innerHTML = `
       <span class="masthead-index">${String(def.index).padStart(2, '0')}</span>
       <div>
         <h1 class="masthead-title">${def.title}</h1>
         <p class="masthead-subtitle">${def.subtitle}</p>
       </div>`;
+
+    // Seeded generators wear their seed; the reroll button prints a new one.
+    if (def.seeded && seed !== undefined) {
+      const chip = document.createElement('div');
+      chip.className = 'seed-chip';
+      chip.innerHTML = `<span class="seed-chip-label">Seed</span><span class="seed-chip-value">${seed}</span>`;
+      const reroll = document.createElement('button');
+      reroll.type = 'button';
+      reroll.className = 'seed-chip-reroll';
+      reroll.title = 'New seed';
+      reroll.textContent = '↻';
+      reroll.addEventListener('click', () => {
+        location.hash = `#/${def.id}?seed=${encodeURIComponent(randomSeedString())}`;
+      });
+      chip.append(reroll);
+      this.mastheadEl.querySelector('div')!.append(chip);
+    }
 
     for (const link of this.navEl.querySelectorAll<HTMLElement>('.chapter-nav-link')) {
       link.classList.toggle('is-active', link.dataset.chapter === def.id);
@@ -208,28 +237,56 @@ export class Shell {
     const [path, query] = hash.split('?');
     const params = new URLSearchParams(query ?? '');
     return {
-      chapterId: path || DEFAULT_CHAPTER,
-      seed: params.get('seed') ?? 'SOL',
+      chapterId: path ?? '',
+      seed: params.get('seed') ?? 'VELA-2015',
     };
   }
 
   private async syncToRoute(): Promise<void> {
     const route = this.currentRoute();
-    const def = findChapter(route.chapterId);
 
-    if (!def) {
-      location.hash = `#/${DEFAULT_CHAPTER}`;
+    if (!route.chapterId) {
+      this.showGallery();
       return;
     }
+
+    const def = findChapter(route.chapterId);
+    if (!def) {
+      location.hash = '#/';
+      return;
+    }
+
+    this.hideGallery();
+
     if (!def.available) {
       this.updateChrome(def);
       this.disposeChapter();
       this.showComingSoon(def);
       return;
     }
-    if (this.chapterDef?.id === def.id && this.chapter) return;
+    // Same chapter, same seed → nothing to do. A seed change reloads.
+    if (this.chapterDef?.id === def.id && this.chapter && this.currentSeed === route.seed) return;
 
     await this.loadChapter(def, route.seed);
+  }
+
+  private showGallery(): void {
+    this.disposeChapter();
+    this.clearNotice();
+    this.chapterDef = null;
+    this.hud.style.display = 'none';
+    this.labels.element.style.display = 'none';
+    if (!this.gallery) {
+      this.gallery = new Gallery();
+      this.root.append(this.gallery.element);
+    }
+    this.gallery.show();
+  }
+
+  private hideGallery(): void {
+    this.gallery?.hide();
+    this.hud.style.display = '';
+    this.labels.element.style.display = '';
   }
 
   private async loadChapter(def: ChapterDef, seed: string): Promise<void> {
@@ -237,6 +294,11 @@ export class Shell {
     this.disposeChapter();
     this.clearNotice();
     this.chapterDef = def;
+    this.currentSeed = seed;
+
+    // Chapters only declare deviations from the house print settings, so
+    // every load starts from the same plate.
+    Object.assign(this.print.settings, DEFAULT_PRINT);
 
     if (def.palette) {
       const p = PALETTES.find((x) => x.id === def.palette);
@@ -246,7 +308,7 @@ export class Shell {
       }
     }
 
-    this.updateChrome(def);
+    this.updateChrome(def, seed);
 
     const loading = document.createElement('div');
     loading.className = 'loading';
@@ -273,9 +335,9 @@ export class Shell {
         controls: chapterPanel,
         size: { width: this.ctx.width, height: this.ctx.height },
         seed,
+        rng: new Rng(seed),
         reseed: (next: string) => {
           location.hash = `#/${def.id}?seed=${encodeURIComponent(next)}`;
-          void this.loadChapter(def, next);
         },
       });
 

@@ -7,6 +7,7 @@
  */
 
 import type { OrbitCamera } from '../core/camera.ts';
+import type { Rng } from '../core/rng.ts';
 import type { PrintPass } from '../gl/post.ts';
 import type { InkSet } from '../ui/palette.ts';
 import type { LabelLayer } from '../ui/labels.ts';
@@ -26,6 +27,8 @@ export interface ChapterContext {
   size: { width: number; height: number };
   /** The seed this chapter was opened with. */
   seed: string;
+  /** Already seeded from `seed` — the chapter's one source of randomness. */
+  rng: Rng;
   /** Replace the seed and reload the chapter. */
   reseed: (seed: string) => void;
 }
@@ -55,6 +58,8 @@ export interface ChapterDef {
   api: 'webgl2' | 'webgpu';
   /** Palette id from PALETTES. */
   palette?: string;
+  /** Seeded generators get the shell's seed chip (shown seed + reroll). */
+  seeded?: boolean;
   /** Chapters not yet built render as disabled nav entries. */
   available: boolean;
   /** Code-split entry point. */

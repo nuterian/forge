@@ -143,9 +143,13 @@ Old repo (reference only, not a foundation): `graphics-gh-pages/`
       05-galaxy-loom/
       06-forge/
   ```
-- **Every chapter has:** seed bar + reroll; a collapsible "How it works" panel
-  naming the concepts with live-tweakable parameters; consistent HUD; a
-  transition into the next chapter.
+- **Every chapter has:** seed chip + reroll (seeded chapters); a collapsible
+  "How it works" panel naming the concepts; a small opinionated control panel
+  (defaults live in code); consistent HUD.
+- **The index is a printer's proof sheet:** each chapter is a plate — a
+  monochrome line engraving at rest that gets *inked* on hover (color floods
+  in and the vignette starts to move). Unbuilt chapters show stamped "in
+  press" plates.
 - **Visual language:** the space-age print direction above — shared ink palette
   module, shared grain/halftone post pass, one poster typeface, shared chrome.
   One production, not nine assignments.
