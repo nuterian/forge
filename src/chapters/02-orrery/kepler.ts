@@ -87,6 +87,23 @@ export function positionAtAnomaly(out: Vec3, el: OrbitalElements, meanAnomaly: n
   return out;
 }
 
+/**
+ * A moon's position on a simple circular, inclined orbit — the shared shape
+ * behind every satellite in the project (the Orrery's moons, Worldsmith's).
+ * `angle` is the position around the circle; `inclination` tilts it off the
+ * parent's equatorial plane, in radians. Written in the parent's local frame:
+ * callers add the parent's own position (and rotate by its axial tilt, if it
+ * has one) to place the result in world space.
+ */
+export function satelliteOffset(out: Vec3, angle: number, distance: number, inclination: number): Vec3 {
+  const x = Math.cos(angle) * distance;
+  const zFlat = Math.sin(angle) * distance;
+  out[0] = x;
+  out[1] = -zFlat * Math.sin(inclination);
+  out[2] = zFlat * Math.cos(inclination);
+  return out;
+}
+
 /** Days since the J2000.0 epoch (2000-01-01 12:00 TT). */
 export const J2000_MS = Date.UTC(2000, 0, 1, 12, 0, 0);
 

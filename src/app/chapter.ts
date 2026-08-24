@@ -29,6 +29,17 @@ export interface ChapterContext {
   seed: string;
   /** Already seeded from `seed` — the chapter's one source of randomness. */
   rng: Rng;
+  /**
+   * True when this load is a reroll of the same chapter rather than a fresh
+   * arrival. The shell already keeps the camera's yaw/pitch/fov/distance
+   * across a reseed (see Shell.loadChapter); a chapter whose subject moves
+   * with the seed (a planet on its own orbit, say) should check this before
+   * re-centering the camera on that subject, or every reroll will yank the
+   * view to the new position instead of leaving it where the user left it —
+   * the same "reroll changes the content, not the view" contract Star Chart
+   * gets for free because its subject never moves.
+   */
+  isReseed: boolean;
   /** Replace the seed and reload the chapter. */
   reseed: (seed: string) => void;
 }

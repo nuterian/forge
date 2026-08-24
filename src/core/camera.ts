@@ -257,6 +257,17 @@ export class OrbitCamera {
   }
 
   /**
+   * The view matrix's right/up rows, pulled out as world-space axes — free
+   * billboarding for coronas, halos and any other camera-facing quad, and one
+   * fewer place each chapter has to know the view matrix's row layout.
+   */
+  billboardAxes(right: Vec3, up: Vec3): void {
+    const v = this.view;
+    right[0] = v[0]!; right[1] = v[4]!; right[2] = v[8]!;
+    up[0] = v[1]!; up[1] = v[5]!; up[2] = v[9]!;
+  }
+
+  /**
    * World → normalized screen coordinates, with a flag for points behind the
    * camera (which project to plausible-looking but wrong positions).
    */

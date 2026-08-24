@@ -25,7 +25,7 @@ import { buildPolyline, updatePolyline } from '../../gl/polyline.ts';
 import { loadObj, normalizeGeometry } from '../../gl/obj.ts';
 import type { LabelSpec } from '../../ui/labels.ts';
 import { BELT, PLANETS, SURFACE_STYLE_ID, TOUR_ORDER, type BodyDef, type MoonDef } from './bodies.ts';
-import { dateFromDays, daysFromDate, meanAnomalyAt, positionAt, positionAtAnomaly } from './kepler.ts';
+import { dateFromDays, daysFromDate, meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from './kepler.ts';
 
 import bodyVert from './shaders/body.vert?raw';
 import bodyFrag from './shaders/body.frag?raw';
@@ -482,6 +482,10 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
 
   camera.minDistance = 0.25;
   camera.maxDistance = 600;
+  // The previous chapter may have pivoted the camera anywhere — Worldsmith's
+  // planet orbits tens of units from its own origin — so every chapter must
+  // claim its own pivot on load rather than trust leftover state.
+  camera.focus(sun.position);
   // Frame the inner system with the belt at the edge: the most legible view of
   // the system, and the one that makes the orbit traces read as a diagram.
   if (camera.distance > 80 || camera.distance < 4) camera.distance = 27;
@@ -520,14 +524,9 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       for (const moon of body.moons) {
         const distance = moonDistance(moon.def.distanceKm, body.radius);
         const angle = moon.phase0 + visClock * moon.visRate * TAU;
-        const inc = moon.def.inclination * DEG;
 
-        // Position in the moon's own orbital plane...
-        vec3.set(tmpLocal, Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
-        // ...tilted by its inclination...
-        const y = -tmpLocal[2]! * Math.sin(inc);
-        const z = tmpLocal[2]! * Math.cos(inc);
-        vec3.set(tmpLocal, tmpLocal[0]!, y, z);
+        // Position in the moon's own orbital plane, inclined off the equator...
+        satelliteOffset(tmpLocal, angle, distance, moon.def.inclination * DEG);
         // ...then carried into the planet's tilted frame. This is the whole
         // point of a scene graph: the moon never knows where the planet is.
         vec3.transformDirMat4(tmpVec, tmpLocal, body.tilt);
@@ -778,12 +777,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     if (settings.corona > 0.001) {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
       gl.disable(gl.CULL_FACE);
-
-      // Pull the camera's right and up axes straight out of the view matrix.
-      // The view matrix's rows are the camera basis, so billboarding is free.
-      const v = camera.view;
-      vec3.set(cameraRight, v[0]!, v[4]!, v[8]!);
-      vec3.set(cameraUp, v[1]!, v[5]!, v[9]!);
+      camera.billboardAxes(cameraRight, cameraUp);
 
       coronaProgram
         .use()
