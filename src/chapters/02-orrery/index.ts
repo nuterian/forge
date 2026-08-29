@@ -486,9 +486,22 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   // planet orbits tens of units from its own origin — so every chapter must
   // claim its own pivot on load rather than trust leftover state.
   camera.focus(sun.position);
-  // Frame the inner system with the belt at the edge: the most legible view of
-  // the system, and the one that makes the orbit traces read as a diagram.
-  if (camera.distance > 80 || camera.distance < 4) camera.distance = 27;
+  // Frame the inner system out to about Mars, with the belt at the edge: the
+  // most legible view of the system, and the one that makes the orbit traces
+  // read as a diagram.
+  //
+  // Asking for a *radius* rather than a distance is what keeps that framing on
+  // a portrait phone. fov is vertical, so the same distance that frames the
+  // inner system on a laptop shows nothing but the sun on a 375px-wide screen;
+  // fitDistance solves for whichever axis is tighter.
+  //
+  // This runs on every fresh arrival rather than behind a "is the distance
+  // wildly wrong" guard. The old guard tested `distance > 80 || distance < 4`,
+  // which the camera's own default of 30 sails straight through — so the
+  // opening shot was never actually framed, and arriving from Worldsmith
+  // (which leaves the camera a few units from a planet) parked the view
+  // inside the sun.
+  camera.distance = camera.fitDistance(scaleAu(1.5));
   camera.pitch = 0.5;
 
   // -- update --------------------------------------------------------------

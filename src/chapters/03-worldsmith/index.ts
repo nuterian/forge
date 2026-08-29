@@ -150,8 +150,10 @@ export function create(ctx: ChapterContext): ChapterInstance {
   // never moves. Only a genuine first arrival gets the "meet the world"
   // framing below.
   if (!isReseed) {
-    // Land on the portrait: anything outside a close-up is reframed.
-    if (camera.distance > 12 || camera.distance < 2.2) camera.distance = 4.2;
+    // Land on the portrait. The planet is a unit sphere, so framing a radius
+    // of 1.5 leaves it comfortably inside the frame on any shape of screen —
+    // a fixed distance, tuned on a laptop, crops it on a phone held upright.
+    camera.distance = camera.fitDistance(1.5);
     // Meet the world gibbous: the star about 45° off the view, terminator in frame.
     camera.yaw = Math.atan2(-planetPosition[0]!, -planetPosition[2]!) - 0.8;
     camera.pitch = 0.2;

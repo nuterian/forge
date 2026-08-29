@@ -63,6 +63,14 @@ export class OrbitCamera {
   private dragging = false;
   private lastX = 0;
   private lastY = 0;
+  /**
+   * Every finger currently down. A mouse only ever puts one entry here, but a
+   * touch screen has no wheel, so the second finger is the only zoom control
+   * the device has — see the pinch handling in attach().
+   */
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  /** Distance between the two pinching fingers on the previous move. */
+  private pinchDistance = 0;
   private readonly listeners: Array<[string, EventListener]> = [];
 
   /** Set false while a tour is flying, so a stray drag doesn't fight it. */
@@ -101,6 +109,15 @@ export class OrbitCamera {
     const onPointerDown = (e: Event) => {
       const pe = e as PointerEvent;
       if (!this.inputEnabled || pe.button !== 0) return;
+      this.pointers.set(pe.pointerId, { x: pe.clientX, y: pe.clientY });
+      // A second finger starts a pinch and ends the drag, so the view doesn't
+      // lurch sideways as the fingers spread.
+      if (this.pointers.size === 2) {
+        this.dragging = false;
+        this.pinchDistance = this.spread();
+        return;
+      }
+      if (this.pointers.size > 2) return;
       this.dragging = true;
       this.lastX = pe.clientX;
       this.lastY = pe.clientY;
@@ -110,7 +127,25 @@ export class OrbitCamera {
 
     const onPointerMove = (e: Event) => {
       const pe = e as PointerEvent;
-      if (!this.dragging || !this.inputEnabled) return;
+      if (!this.inputEnabled) return;
+
+      const tracked = this.pointers.get(pe.pointerId);
+      if (tracked) {
+        tracked.x = pe.clientX;
+        tracked.y = pe.clientY;
+      }
+
+      // Pinch: the ratio of finger spread between frames is exactly the
+      // proportional zoom step the wheel produces per notch, so both roads
+      // lead to the same zoomBy().
+      if (this.pointers.size >= 2) {
+        const spread = this.spread();
+        if (this.pinchDistance > 0 && spread > 0) this.zoomBy(this.pinchDistance / spread);
+        this.pinchDistance = spread;
+        return;
+      }
+
+      if (!this.dragging) return;
       const dx = pe.clientX - this.lastX;
       const dy = pe.clientY - this.lastY;
       this.lastX = pe.clientX;
@@ -129,7 +164,18 @@ export class OrbitCamera {
 
     const onPointerUp = (e: Event) => {
       const pe = e as PointerEvent;
-      this.dragging = false;
+      this.pointers.delete(pe.pointerId);
+      this.pinchDistance = 0;
+      // Lifting one of two fingers must not resume the drag from a stale
+      // anchor — the remaining finger has moved since it went down.
+      if (this.pointers.size === 1) {
+        const [only] = this.pointers.values();
+        this.dragging = true;
+        this.lastX = only!.x;
+        this.lastY = only!.y;
+      } else {
+        this.dragging = false;
+      }
       if (element.hasPointerCapture?.(pe.pointerId)) element.releasePointerCapture(pe.pointerId);
       element.style.cursor = 'grab';
     };
@@ -140,13 +186,7 @@ export class OrbitCamera {
       we.preventDefault();
       // Exponential zoom: constant *proportional* change per notch, so zooming
       // feels the same whether you are at 1 unit or 500.
-      const scale = Math.exp(we.deltaY * this.zoomSpeed);
-      if (this.lookOut) {
-        this.fov = clamp(this.fov * scale, this.minFov, this.maxFov);
-      } else {
-        this.distance = clamp(this.distance * scale, this.minDistance, this.maxDistance);
-      }
-      this.mode = 'orbit';
+      this.zoomBy(Math.exp(we.deltaY * this.zoomSpeed));
     };
 
     const add = (type: string, fn: EventListener, opts?: AddEventListenerOptions) => {
@@ -163,10 +203,54 @@ export class OrbitCamera {
     element.style.touchAction = 'none';
   }
 
+  /** Pixels between the first two fingers down. */
+  private spread(): number {
+    const it = this.pointers.values();
+    const a = it.next().value;
+    const b = it.next().value;
+    if (!a || !b) return 0;
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  /**
+   * Zoom by a proportional factor — >1 pulls back, <1 moves in. Dollying and
+   * field-of-view are the same gesture to the user, so which one a chapter
+   * gets is decided here rather than at every call site.
+   */
+  zoomBy(scale: number): void {
+    if (this.lookOut) {
+      this.fov = clamp(this.fov * scale, this.minFov, this.maxFov);
+    } else {
+      this.distance = clamp(this.distance * scale, this.minDistance, this.maxDistance);
+    }
+    this.mode = 'orbit';
+  }
+
+  /**
+   * How far back to sit for a sphere of `radius` about the pivot to fit the
+   * frame — on *both* axes.
+   *
+   * fov is vertical, so a portrait phone sees far less across than a desktop
+   * at the same distance: at 42° and 16:9 the horizontal half-angle is 34°,
+   * but on a 375×812 screen it collapses to 10°. A chapter that hard-codes a
+   * distance tuned on a laptop therefore arrives on a phone framed three times
+   * too tight — which is why chapters ask for a radius and let the camera
+   * solve for the distance every time it is asked.
+   */
+  fitDistance(radius: number, margin = 1.05): number {
+    const halfV = Math.min(this.fov, 2.4) / 2;
+    const halfH = Math.atan(Math.tan(halfV) * Math.max(this.aspect, 1e-3));
+    const half = Math.max(Math.min(halfV, halfH), 1e-3);
+    return clamp((radius * margin) / Math.sin(half), this.minDistance, this.maxDistance);
+  }
+
   detach(): void {
     if (!this.element) return;
     for (const [type, fn] of this.listeners) this.element.removeEventListener(type, fn);
     this.listeners.length = 0;
+    this.pointers.clear();
+    this.pinchDistance = 0;
+    this.dragging = false;
     this.element = null;
   }
 

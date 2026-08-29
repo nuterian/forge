@@ -321,6 +321,16 @@ export class Shell {
       vec3.set(this.camera.position, 0, 0, 10);
     }
 
+    // Measure before the chapter is built, not after. Chapters frame their
+    // opening shot in create(), and framing needs the aspect ratio — which is
+    // wrong (or literally 1×1, before the stylesheet has landed) if the only
+    // measurement happens in the first frame, after create() has already run.
+    const rect = this.ctx.canvas.getBoundingClientRect();
+    if (resizeToDisplay(this.ctx, rect)) {
+      this.framebuffer.resize(this.ctx.width, this.ctx.height);
+    }
+    this.camera.aspect = this.ctx.width / Math.max(1, this.ctx.height);
+
     // Chapters only declare deviations from the house print settings, so
     // every load starts from the same plate.
     Object.assign(this.print.settings, DEFAULT_PRINT);
@@ -346,7 +356,14 @@ export class Shell {
       // A newer navigation may have started while this one was importing.
       if (token !== this.loadToken) return;
 
-      const chapterPanel = new ControlPanel(def.title);
+      // On a phone the panel would cover a third of the scene before you have
+      // even looked at it, so it arrives collapsed to its header and opens on
+      // a tap. On anything roomier it stays open, where it belongs.
+      //
+      // Measured from the canvas, not window.innerWidth: that reads 0 when the
+      // page is laid out while hidden, and 0 is narrower than any phone, so
+      // every desktop load would have arrived collapsed too.
+      const chapterPanel = new ControlPanel(def.title, rect.width > 0 && rect.width <= 620);
       this.chapterPanel = chapterPanel;
       this.leftRail.replaceChildren(chapterPanel.element);
 
