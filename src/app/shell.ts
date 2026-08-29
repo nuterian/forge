@@ -390,6 +390,9 @@ export class Shell {
       }
 
       this.chapter = instance;
+      // A chapter loaded, so whatever the browser is holding is current. Spend
+      // the stale-build reload again if a *later* deploy strands this session.
+      try { sessionStorage.removeItem('forge:reloaded-for-stale-build'); } catch { /* no-op */ }
       chapterPanel.add(this.inkSelector());
 
       // Restore the pre-reseed view, within whatever limits the chapter set.
@@ -407,6 +410,7 @@ export class Shell {
     } catch (err) {
       if (token !== this.loadToken) return;
       console.error(err);
+      if (this.recoverFromStaleBuild(err)) return;
       this.showNotice(
         `${def.title} failed to load`,
         err instanceof Error ? err.message : String(err),
@@ -415,6 +419,36 @@ export class Shell {
     } finally {
       loading.remove();
     }
+  }
+
+  /**
+   * Reload once when a chapter's code cannot be fetched at all.
+   *
+   * Chapters are dynamic imports of content-hashed files, and the page that
+   * names those hashes is HTML the browser is allowed to cache (GitHub Pages
+   * serves it with max-age=600). So for ten minutes after a deploy, anyone
+   * holding the previous index.html asks for chunks the deploy has already
+   * deleted, and every chapter 404s — the site looks broken to exactly the
+   * people who visit most often.
+   *
+   * The page itself is the stale part, so reloading it is the fix. Guarded by
+   * a session flag: if the reload fails the same way it is not a cache at all,
+   * and a loop would be worse than the error.
+   */
+  private recoverFromStaleBuild(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!/dynamically imported module|Importing a module script failed/i.test(message)) {
+      return false;
+    }
+    const KEY = 'forge:reloaded-for-stale-build';
+    try {
+      if (sessionStorage.getItem(KEY)) return false;
+      sessionStorage.setItem(KEY, '1');
+    } catch {
+      return false; // no session storage (private mode): show the error instead
+    }
+    location.reload();
+    return true;
   }
 
   private disposeChapter(): void {
