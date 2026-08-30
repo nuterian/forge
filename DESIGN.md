@@ -136,6 +136,7 @@ Old repo (reference only, not a foundation): `graphics-gh-pages/`
     gpu/         WebGPU helpers (pipeline, bindgroups, buffers)
     scene/       furniture shared by the space chapters: sky pass, glow
                  billboard, and the body/rings/orbit/sun shaders
+    bench/       the performance suite (#/bench) and its committed budget
     ui/          themed control panel, "how it works" overlay, seed bar, chapter nav
     chapters/
       01-star-chart/

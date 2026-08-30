@@ -450,7 +450,9 @@ export async function runAllBenches(
   // other GPU work; sweeps make sure one favourable scheduling window reaches
   // every bench instead of whichever happened to run during it.
 
-  const SWEEPS = 3;
+  // An occluded page rides efficiency cores in long stretches; more sweeps
+  // buy more chances of a performance-core window, and minima only improve.
+  const SWEEPS = document.visibilityState === 'visible' ? 3 : 7;
   const total = (gpuBenches.length + cpuBenches.length) * SWEEPS;
   let done = 0;
 

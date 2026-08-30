@@ -51,6 +51,22 @@ typechecker alone.
 Chapters are addressed by hash route, and seeds are shareable:
 `#/worldsmith?seed=VELA-2015`.
 
+## Performance
+
+The project carries its own benchmark suite at **`#/bench`** (on every build,
+including the live site, though it's absent from the nav): every hot GPU pass
+and CPU primitive, measured under fixed seeded workloads against the budget
+committed in [src/bench/thresholds.ts](src/bench/thresholds.ts). Green means
+the budget holds; a red row means the code got slower than we promised it
+would stay, and the change that caused it either gets fixed or re-budgets the
+threshold in a reviewed diff.
+
+Methodology, because benchmarks lie by default: GPU passes are timed with
+`EXT_disjoint_timer_query_webgl2` under sustained submission (idle gaps let
+the GPU downclock and inflate readings 5–10×), uniform uploads stay outside
+the timed region, and the headline statistic is the minimum across interleaved
+sweeps — noise only ever adds time. Run it with the tab visible.
+
 ## Stack
 
 Vite + TypeScript with **zero runtime dependencies** — no three.js, no math library, no
