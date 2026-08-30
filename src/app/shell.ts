@@ -143,6 +143,7 @@ export class Shell {
     this.navEl.append(home);
 
     for (const def of CHAPTERS) {
+      if (def.hidden) continue;
       const link = document.createElement('a');
       link.className = 'chapter-nav-link';
       if (!def.available) link.classList.add('is-disabled');

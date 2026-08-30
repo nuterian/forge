@@ -73,6 +73,8 @@ export interface ChapterDef {
   seeded?: boolean;
   /** Chapters not yet built render as disabled nav entries. */
   available: boolean;
+  /** Utility plates (the benchmark suite) — routable, but never listed. */
+  hidden?: boolean;
   /** Code-split entry point. */
   load?: () => Promise<ChapterModule>;
 }

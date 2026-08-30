@@ -397,6 +397,7 @@ export class Gallery {
     grid.className = 'gallery-grid';
 
     for (const def of CHAPTERS) {
+      if (def.hidden) continue;
       grid.append(this.buildTile(def));
     }
 

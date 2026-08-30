@@ -106,6 +106,20 @@ export const CHAPTERS: ChapterDef[] = [
     palette: 'observatory',
     available: false,
   },
+  {
+    // The performance suite — see src/bench. Reachable at #/bench on any
+    // build (that is the point: validate on real phones and other machines),
+    // but never listed in the nav or on the proof sheet.
+    id: 'bench',
+    index: 0,
+    title: 'Benchmarks',
+    subtitle: 'Every hot pass and primitive, measured against the committed budget.',
+    concepts: [],
+    api: 'webgl2',
+    available: true,
+    hidden: true,
+    load: () => import('../bench/index.ts'),
+  },
 ];
 
 export function findChapter(id: string): ChapterDef | undefined {
