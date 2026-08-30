@@ -33,6 +33,20 @@ export function best(values: number[]): number {
   return Math.min(...values);
 }
 
+/**
+ * Yield one macrotask without going through the timer queue. setTimeout in a
+ * hidden page is throttled — down to one wake per MINUTE under Chrome's
+ * intensive throttling — which turned a two-second suite into an hour.
+ * MessageChannel tasks are not timers and are never throttled.
+ */
+export function yieldTask(): Promise<void> {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(0);
+  });
+}
+
 // -- GPU ---------------------------------------------------------------------
 
 interface TimerExt {
@@ -66,10 +80,16 @@ export class GpuTimer {
     gl.endQuery(ext.TIME_ELAPSED_EXT);
     gl.flush();
 
-    // Results land a few frames later; poll off the critical path.
+    // Results land a few frames later; poll without touching the throttled
+    // timer queue, with a wall-clock cap so a lost query can't hang the suite.
+    const deadline = performance.now() + 15000;
     for (;;) {
-      await new Promise((r) => setTimeout(r, 8));
+      await yieldTask();
       if (gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE)) break;
+      if (performance.now() > deadline) {
+        gl.deleteQuery(query);
+        throw new Error('GPU query never resolved');
+      }
     }
     const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT) as boolean;
     const ns = gl.getQueryParameter(query, gl.QUERY_RESULT) as number;

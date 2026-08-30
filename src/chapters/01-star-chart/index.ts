@@ -331,8 +331,10 @@ export function create(ctx: ChapterContext): ChapterInstance {
   };
 
   /** Project a chain of stars and stroke a Catmull-Rom figure through it. */
+  const chainScratch: number[] = []; // reused: this runs per figure per frame
   const strokeChain = (chain: number[], color: RGB, alpha: number, bold: boolean): void => {
-    const points: number[] = [];
+    const points = chainScratch;
+    points.length = 0;
     for (const idx of chain) {
       projectDir(model.stars[idx]!.dir, pa);
       // A figure that wraps behind the viewer would smear across the frame —
@@ -382,6 +384,21 @@ export function create(ctx: ChapterContext): ChapterInstance {
   let width = ctx.size.width;
   let height = ctx.size.height;
 
+  // The plate: everything that only changes with the *view* — the cleared
+  // paper and the graticule, ~1300 projected line segments — baked to a
+  // snapshot and restored by memcpy each frame. Stars, figures and chains
+  // still draw per frame (the twinkle animates, and layering puts them above
+  // the graticule), but the majority of the line work stops repeating itself.
+  // The view comparison is exact: the camera's damping converges bitwise, so
+  // a resting chart re-bakes nothing.
+  const plateView = new Float32Array(16);
+  let plateFov = -1;
+  let plateW = -1;
+  let plateH = -1;
+  let plateGraticule = false;
+  let plateAa = false;
+  let plate: Uint32Array | null = null;
+
   return {
     update(dt) {
       twinkleClock += dt;
@@ -393,8 +410,38 @@ export function create(ctx: ChapterContext): ChapterInstance {
       raster.resize(Math.round(width * scale), Math.round(height * scale));
 
       updateBasis();
-      raster.clear(paperRgb);
-      if (settings.graticule) drawGraticule();
+
+      const v = camera.view;
+      let dirty =
+        plate === null ||
+        plateFov !== camera.fov ||
+        plateW !== raster.width ||
+        plateH !== raster.height ||
+        plateGraticule !== settings.graticule ||
+        plateAa !== settings.antialias;
+      if (!dirty) {
+        for (let i = 0; i < 16; i++) {
+          if (plateView[i] !== v[i]!) {
+            dirty = true;
+            break;
+          }
+        }
+      }
+
+      if (dirty) {
+        raster.clear(paperRgb);
+        if (settings.graticule) drawGraticule();
+        plate = raster.snapshot(plate ?? undefined);
+        plateView.set(v);
+        plateFov = camera.fov;
+        plateW = raster.width;
+        plateH = raster.height;
+        plateGraticule = settings.graticule;
+        plateAa = settings.antialias;
+      } else {
+        raster.restore(plate!);
+      }
+
       drawStars();
       if (settings.figures) drawFigures();
       drawUserChains();

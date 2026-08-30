@@ -380,6 +380,22 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     year: 'numeric', month: 'short', day: '2-digit',
   });
 
+  // The epoch readout is polled every frame, but Intl only earns its keep
+  // when the displayed day actually changes.
+  let epochDay = Number.NaN;
+  let epochText = '';
+  const epochReadout = (): string => {
+    const day = Math.floor(simDays);
+    if (day !== epochDay) {
+      epochDay = day;
+      epochText = dateFormat.format(dateFromDays(simDays));
+    }
+    return epochText;
+  };
+
+  /** Resolved when the Follow control changes — never searched per frame. */
+  let focusBody: RuntimeBody | null = null;
+
   const focusOptions = [
     { label: 'Free orbit', value: 'none' },
     { label: 'Sun', value: 'sun' },
@@ -390,7 +406,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   // A deliberately small panel: time, where to look, how it's shaded, and two
   // visibility switches. Everything else runs on tuned defaults.
   controls.addAll([
-    { kind: 'readout', label: 'Epoch', get: () => dateFormat.format(dateFromDays(simDays)) },
+    { kind: 'readout', label: 'Epoch', get: epochReadout },
     {
       kind: 'slider', label: 'Days / second', min: 0, max: 120, value: settings.timeWarp,
       format: (v) => (v < 0.05 ? 'paused' : v.toFixed(0)),
@@ -404,12 +420,10 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       kind: 'select', label: 'Follow', value: 'none', options: focusOptions,
       onChange: (v) => {
         settings.focus = v;
+        focusBody = bodies.find((b) => b.def.id === v) ?? null;
         if (v === 'none') camera.releaseToOrbit();
         else if (v === 'sun') camera.focus(sun.position, sun.radius * 7);
-        else {
-          const body = bodies.find((b) => b.def.id === v);
-          if (body) camera.focus(body.position, Math.max(body.radius * 9, 2.4));
-        }
+        else if (focusBody) camera.focus(focusBody.position, Math.max(focusBody.radius * 9, 2.4));
       },
     },
     {
@@ -579,9 +593,8 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       camera.inputEnabled = true;
       if (settings.focus === 'sun') {
         camera.focus(sun.position);
-      } else {
-        const body = bodies.find((b) => b.def.id === settings.focus);
-        if (body) camera.focus(body.position);
+      } else if (focusBody) {
+        camera.focus(focusBody.position);
       }
     }
 

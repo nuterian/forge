@@ -33,6 +33,9 @@ interface LabelEntry {
   spec: LabelSpec;
   el: HTMLElement;
   detailEl: HTMLElement | null;
+  /** Last written styles — a 60Hz loop must not touch the CSSOM redundantly. */
+  lastOpacity: string;
+  lastTransform: string;
 }
 
 const projected = { x: 0, y: 0, visible: false };
@@ -127,7 +130,7 @@ export class LabelLayer {
       }
 
       this.element.append(el);
-      next.set(spec.id, { spec, el, detailEl });
+      next.set(spec.id, { spec, el, detailEl, lastOpacity: '', lastTransform: '' });
     }
 
     // Anything left in the old map is gone from the scene.
@@ -160,18 +163,18 @@ export class LabelLayer {
       else camera.project(spec.position, projected);
 
       if (!projected.visible) {
-        entry.el.style.opacity = '0';
+        this.hide(entry);
         continue;
       }
       if (spec.maxDistance !== undefined && camera.distanceTo(spec.position) > spec.maxDistance) {
-        entry.el.style.opacity = '0';
+        this.hide(entry);
         continue;
       }
       if (
         spec.occluder &&
         occludes(camera.position, spec.position, spec.occluder.center, spec.occluder.radius)
       ) {
-        entry.el.style.opacity = '0';
+        this.hide(entry);
         continue;
       }
 
@@ -194,12 +197,26 @@ export class LabelLayer {
         (t) => Math.abs(t.x - item.x) < minGapX && Math.abs(t.y - item.y) < minGapY,
       );
       if (collides) {
-        item.entry.el.style.opacity = '0';
+        this.hide(item.entry);
         continue;
       }
       taken.push({ x: item.x, y: item.y });
-      item.entry.el.style.opacity = '1';
-      item.entry.el.style.transform = `translate(${item.x.toFixed(1)}px, ${item.y.toFixed(1)}px)`;
+      if (item.entry.lastOpacity !== '1') {
+        item.entry.el.style.opacity = '1';
+        item.entry.lastOpacity = '1';
+      }
+      const transform = `translate(${item.x.toFixed(1)}px, ${item.y.toFixed(1)}px)`;
+      if (item.entry.lastTransform !== transform) {
+        item.entry.el.style.transform = transform;
+        item.entry.lastTransform = transform;
+      }
+    }
+  }
+
+  private hide(entry: LabelEntry): void {
+    if (entry.lastOpacity !== '0') {
+      entry.el.style.opacity = '0';
+      entry.lastOpacity = '0';
     }
   }
 

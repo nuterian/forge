@@ -62,6 +62,22 @@ export class Raster {
     d[i + 2] = d[i + 2]! + (color[2] - d[i + 2]!) * a;
   }
 
+  /**
+   * Copy the whole image out / back in — one memcpy each way. This is what
+   * lets a chapter bake everything that only changes with the *view* (a
+   * graticule, say) and pay per frame only for what actually animates.
+   * The returned buffer is only valid until the next resize.
+   */
+  snapshot(into?: Uint32Array): Uint32Array {
+    const buf = into && into.length === this.data32.length ? into : new Uint32Array(this.data32.length);
+    buf.set(this.data32);
+    return buf;
+  }
+
+  restore(snap: Uint32Array): void {
+    if (snap.length === this.data32.length) this.data32.set(snap);
+  }
+
   // -- lines ---------------------------------------------------------------
 
   /**
@@ -85,34 +101,46 @@ export class Raster {
   /**
    * Wu's anti-aliased line: the same march, but the fractional distance from
    * the ideal line is spent as coverage across the two nearest pixels.
+   *
+   * Written as two straight loops rather than one with a `put` closure: the
+   * closure and the destructuring swaps allocated on every call, and a chart
+   * frame makes thousands of calls — the allocations cost more than the
+   * pixels did.
    */
   lineAA(x0: number, y0: number, x1: number, y1: number, color: RGB, alpha = 1): void {
-    let steep = Math.abs(y1 - y0) > Math.abs(x1 - x0);
+    const steep = Math.abs(y1 - y0) > Math.abs(x1 - x0);
+    let ax: number, ay: number, bx: number, by: number;
     if (steep) {
-      [x0, y0] = [y0, x0];
-      [x1, y1] = [y1, x1];
+      ax = y0; ay = x0; bx = y1; by = x1;
+    } else {
+      ax = x0; ay = y0; bx = x1; by = y1;
     }
-    if (x0 > x1) {
-      [x0, x1] = [x1, x0];
-      [y0, y1] = [y1, y0];
+    if (ax > bx) {
+      const tx = ax, ty = ay;
+      ax = bx; ay = by; bx = tx; by = ty;
     }
 
-    const dx = x1 - x0;
-    const gradient = dx === 0 ? 0 : (y1 - y0) / dx;
+    const dx = bx - ax;
+    const gradient = dx === 0 ? 0 : (by - ay) / dx;
 
-    const put = (x: number, y: number, a: number) => {
-      if (steep) this.blend(y, x, color, a * alpha);
-      else this.blend(x, y, color, a * alpha);
-    };
-
-    let y = y0 + gradient * (Math.round(x0) - x0);
-    const xEnd = Math.round(x1);
-    for (let x = Math.round(x0); x <= xEnd; x++) {
-      const iy = Math.floor(y);
-      const f = y - iy;
-      put(x, iy, 1 - f);
-      put(x, iy + 1, f);
-      y += gradient;
+    let y = ay + gradient * (Math.round(ax) - ax);
+    const xEnd = Math.round(bx);
+    if (steep) {
+      for (let x = Math.round(ax); x <= xEnd; x++) {
+        const iy = Math.floor(y);
+        const f = y - iy;
+        this.blend(iy, x, color, (1 - f) * alpha);
+        this.blend(iy + 1, x, color, f * alpha);
+        y += gradient;
+      }
+    } else {
+      for (let x = Math.round(ax); x <= xEnd; x++) {
+        const iy = Math.floor(y);
+        const f = y - iy;
+        this.blend(x, iy, color, (1 - f) * alpha);
+        this.blend(x, iy + 1, color, f * alpha);
+        y += gradient;
+      }
     }
   }
 
@@ -157,28 +185,36 @@ export class Raster {
     const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
     const maxY = Math.min(this.height - 1, Math.ceil(Math.max(ay, by, cy)));
 
-    const edge = (px: number, py: number, x0: number, y0: number, x1: number, y1: number) =>
-      (x1 - x0) * (py - y0) - (y1 - y0) * (px - x0);
+    // Each edge as precomputed coefficients: e(p) = A·px + B·py + C. Same
+    // signed-area test as before, but the inner loop is pure arithmetic —
+    // the tap table and the edge closure used to allocate per *call* and
+    // iterate per *pixel*, which dominated the fill for small triangles.
+    const a0 = ay - by, b0 = bx - ax, c0 = -(a0 * ax + b0 * ay);
+    const a1 = by - cy, b1 = cx - bx, c1 = -(a1 * bx + b1 * by);
+    const a2 = cy - ay, b2 = ax - cx, c2 = -(a2 * cx + b2 * cy);
 
-    const taps: ReadonlyArray<readonly [number, number]> = aa
-      ? [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]
-      : [[0.5, 0.5]];
-
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        let hits = 0;
-        for (const [sx, sy] of taps) {
-          const px = x + sx;
-          const py = y + sy;
-          if (
-            edge(px, py, ax, ay, bx, by) >= 0 &&
-            edge(px, py, bx, by, cx, cy) >= 0 &&
-            edge(px, py, cx, cy, ax, ay) >= 0
-          ) {
-            hits++;
+    if (aa) {
+      for (let y = minY; y <= maxY; y++) {
+        const y1 = y + 0.25, y2 = y + 0.75;
+        for (let x = minX; x <= maxX; x++) {
+          const x1 = x + 0.25, x2 = x + 0.75;
+          let hits = 0;
+          if (a0 * x1 + b0 * y1 + c0 >= 0 && a1 * x1 + b1 * y1 + c1 >= 0 && a2 * x1 + b2 * y1 + c2 >= 0) hits++;
+          if (a0 * x2 + b0 * y1 + c0 >= 0 && a1 * x2 + b1 * y1 + c1 >= 0 && a2 * x2 + b2 * y1 + c2 >= 0) hits++;
+          if (a0 * x1 + b0 * y2 + c0 >= 0 && a1 * x1 + b1 * y2 + c1 >= 0 && a2 * x1 + b2 * y2 + c2 >= 0) hits++;
+          if (a0 * x2 + b0 * y2 + c0 >= 0 && a1 * x2 + b1 * y2 + c1 >= 0 && a2 * x2 + b2 * y2 + c2 >= 0) hits++;
+          if (hits > 0) this.blend(x, y, color, alpha * (hits * 0.25));
+        }
+      }
+    } else {
+      for (let y = minY; y <= maxY; y++) {
+        const py = y + 0.5;
+        for (let x = minX; x <= maxX; x++) {
+          const px = x + 0.5;
+          if (a0 * px + b0 * py + c0 >= 0 && a1 * px + b1 * py + c1 >= 0 && a2 * px + b2 * py + c2 >= 0) {
+            this.blend(x, y, color, alpha);
           }
         }
-        if (hits > 0) this.blend(x, y, color, alpha * (hits / taps.length));
       }
     }
   }
@@ -197,11 +233,28 @@ export class Raster {
     const minY = Math.max(0, Math.floor(cy - radius - 1));
     const maxY = Math.min(this.height - 1, Math.ceil(cy + radius + 1));
 
+    // Distances stay squared until a pixel lands in the half-pixel AA band at
+    // the rim — everywhere else the classification needs no square root, and
+    // the interior of every disc is "everywhere else".
+    const rIn = radius - 0.5;
+    const rIn2 = rIn > 0 ? rIn * rIn : -1;
+    const rOut = radius + 0.5;
+    const rOut2 = rOut * rOut;
+    const r2 = radius * radius;
+
     for (let y = minY; y <= maxY; y++) {
+      const dy = y + 0.5 - cy;
+      const dy2 = dy * dy;
       for (let x = minX; x <= maxX; x++) {
-        const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
-        const coverage = aa ? Math.min(1, Math.max(0, radius - d + 0.5)) : d <= radius ? 1 : 0;
-        if (coverage > 0) this.blend(x, y, color, alpha * coverage);
+        const dx = x + 0.5 - cx;
+        const d2 = dx * dx + dy2;
+        if (aa) {
+          if (d2 >= rOut2) continue;
+          if (d2 <= rIn2) this.blend(x, y, color, alpha);
+          else this.blend(x, y, color, alpha * Math.min(1, radius - Math.sqrt(d2) + 0.5));
+        } else if (d2 <= r2) {
+          this.blend(x, y, color, alpha);
+        }
       }
     }
   }

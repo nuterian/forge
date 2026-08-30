@@ -59,6 +59,35 @@ export function positionAt(out: Vec3, el: OrbitalElements, days: number): Vec3 {
   return positionAtAnomaly(out, el, meanAnomalyAt(el, days));
 }
 
+/**
+ * The six trig values of an orbit's fixed angles, cached per elements object.
+ * Elements are treated as immutable once constructed — every producer in the
+ * project (bodies.ts, generatePlanet) builds them once and never writes them
+ * again — so the cache never goes stale, and a body solved every frame stops
+ * paying six transcendentals for angles that cannot change.
+ */
+interface OrientationTrig {
+  cosW: number; sinW: number; cosN: number; sinN: number; cosI: number; sinI: number;
+}
+
+const orientationCache = new WeakMap<OrbitalElements, OrientationTrig>();
+
+function orientationFor(el: OrbitalElements): OrientationTrig {
+  let t = orientationCache.get(el);
+  if (!t) {
+    const omega = (el.peri - el.node) * DEG; // argument of perihelion
+    const node = el.node * DEG;
+    const inc = el.i * DEG;
+    t = {
+      cosW: Math.cos(omega), sinW: Math.sin(omega),
+      cosN: Math.cos(node), sinN: Math.sin(node),
+      cosI: Math.cos(inc), sinI: Math.sin(inc),
+    };
+    orientationCache.set(el, t);
+  }
+  return t;
+}
+
 /** Position at an explicit mean anomaly — used to trace whole orbits. */
 export function positionAtAnomaly(out: Vec3, el: OrbitalElements, meanAnomaly: number): Vec3 {
   const E = eccentricAnomaly(meanAnomaly, el.e);
@@ -67,13 +96,7 @@ export function positionAtAnomaly(out: Vec3, el: OrbitalElements, meanAnomaly: n
   const xOrbital = el.a * (Math.cos(E) - el.e);
   const yOrbital = el.a * Math.sqrt(1 - el.e * el.e) * Math.sin(E);
 
-  const omega = (el.peri - el.node) * DEG; // argument of perihelion
-  const node = el.node * DEG;
-  const inc = el.i * DEG;
-
-  const cosW = Math.cos(omega), sinW = Math.sin(omega);
-  const cosN = Math.cos(node), sinN = Math.sin(node);
-  const cosI = Math.cos(inc), sinI = Math.sin(inc);
+  const { cosW, sinW, cosN, sinN, cosI, sinI } = orientationFor(el);
 
   // Rotate: orbital plane → ecliptic (argument of perihelion, inclination, node).
   const xEcl = (cosW * cosN - sinW * sinN * cosI) * xOrbital + (-sinW * cosN - cosW * sinN * cosI) * yOrbital;

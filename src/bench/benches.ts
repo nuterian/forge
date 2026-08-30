@@ -27,7 +27,7 @@ import { generateSky } from '../chapters/01-star-chart/sky.ts';
 import {
   applyPlanetUniforms, bakePlanetFields, createRampTexture, generatePlanet,
 } from '../chapters/03-worldsmith/planet.ts';
-import { GpuTimer, best, cpuBench, type BenchResult } from './harness.ts';
+import { GpuTimer, best, cpuBench, yieldTask, type BenchResult } from './harness.ts';
 
 import planetVert from '../chapters/03-worldsmith/shaders/planet.vert?raw';
 import planetFrag from '../chapters/03-worldsmith/shaders/planet.frag?raw';
@@ -482,7 +482,7 @@ export async function runAllBenches(
     }
     for (const bench of cpuBenches) {
       onProgress(done, total, bench.id);
-      await new Promise((r) => setTimeout(r, 0));
+      await yieldTask();
       push(bench.id, cpuBench(bench.fn, { reps: bench.reps, rounds: 4 }));
       done++;
     }
