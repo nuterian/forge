@@ -35,20 +35,26 @@ export type BusName = 'ambient' | 'events' | 'ui';
  */
 const BUS_TRIM: Record<BusName, number> = {
   ambient: 0.62,
-  events: 0.85,
-  ui: 0.5,
+  // Events used to be the loudest bus, on the theory that a rare moment should
+  // carry over the bed. There is no bed to carry over any more — an event lands
+  // in silence, where the same level is startling rather than audible.
+  events: 0.55,
+  ui: 0.36,
 };
 
 /**
  * Master level with sound on.
  *
- * Raised once nothing sustained any more. A bed has to be set low because it
- * never stops and anything that never stops becomes fatiguing; a site whose
- * every sound is a short one, with silence between, can afford headroom the
- * bed could not. The limiter on the output covers the case where several land
- * in the same second.
+ * Raised once, on the theory that a site of short sounds with silence between
+ * them could afford headroom a bed could not, and put back down again when the
+ * reader said the result was loud and disruptive. Both halves of that were
+ * true: the headroom exists, and using it is still the wrong call. A sound
+ * arriving into silence is far more present than the same sound arriving over
+ * a bed, so removing the bed should have taken the master DOWN, not up.
+ *
+ * The limiter on the output covers the case where several land in one second.
  */
-const MASTER_GAIN = 0.5;
+const MASTER_GAIN = 0.3;
 
 /** How long the master takes to open and close. Long enough never to click. */
 const MASTER_RAMP = 0.14;

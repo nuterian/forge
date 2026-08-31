@@ -34,7 +34,7 @@ const ATTACK = 0.045;
 const RELEASE = 0.11;
 
 /** How loud a full-speed drag is. Under everything; noticed, not heard. */
-const LEVEL = 0.38;
+const LEVEL = 0.24;
 
 export class CameraMotion implements Voice {
   private readonly engine: AudioEngine;

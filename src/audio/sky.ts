@@ -18,7 +18,7 @@ import { Place } from './spatial.ts';
 import { noiseBuffer, stopAndFree, strike } from './util.ts';
 
 /** How loud one pass gets at its closest. Subtle: a suggestion, not an event. */
-const PASS_LEVEL = 0.13;
+const PASS_LEVEL = 0.095;
 /** The fade when a pass is cut short — a star respawning, or a page leaving. */
 const PASS_OUT = 0.35;
 
@@ -182,6 +182,10 @@ export class StarPass implements Voice {
  * Noise through a bandpass that sweeps down as the streak falls, panned to the
  * side it crosses. No tone in it at all — a meteor is friction, not a note, and
  * giving it a pitch would make it a chime.
+ *
+ * The attack is soft on purpose. This is the only sound on the index that
+ * arrives without warning, and a fast edge on it in an otherwise silent page
+ * does not read as a meteor, it reads as something going wrong.
  */
 export function streakCue(engine: AudioEngine, pan: number): void {
   const ctx = engine.context;
@@ -205,7 +209,7 @@ export function streakCue(engine: AudioEngine, pan: number): void {
   band.Q.value = 1.6;
 
   const env = ctx.createGain();
-  strike(env.gain, at, 0.36, 0.05, life - 0.05);
+  strike(env.gain, at, 0.17, 0.09, life - 0.09);
 
   src.connect(band).connect(env).connect(place.input);
   src.start(at);

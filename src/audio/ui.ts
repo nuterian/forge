@@ -37,7 +37,7 @@ export function switchCue(engine: AudioEngine, up: boolean): void {
   band.frequency.value = up ? 2400 : 1500;
   band.Q.value = 1.4;
   const clickGain = ctx.createGain();
-  strike(clickGain.gain, at, 0.4, 0.002, 0.05);
+  strike(clickGain.gain, at, 0.2, 0.004, 0.05);
   click.connect(band).connect(clickGain).connect(bus);
   click.start(at);
   stopAndFree(click, at + 0.09, [band, clickGain], engine.release);
@@ -48,7 +48,7 @@ export function switchCue(engine: AudioEngine, up: boolean): void {
   body.frequency.setValueAtTime(up ? 196 : 147, at);
   body.frequency.exponentialRampToValueAtTime(up ? 262 : 110, at + 0.06);
   const bodyGain = ctx.createGain();
-  strike(bodyGain.gain, at, 0.16, 0.004, 0.1);
+  strike(bodyGain.gain, at, 0.075, 0.006, 0.1);
   body.connect(bodyGain).connect(bus);
   body.start(at);
   stopAndFree(body, at + 0.14, [bodyGain], engine.release);
