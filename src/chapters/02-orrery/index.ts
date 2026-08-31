@@ -153,6 +153,8 @@ const ROOM: Room = {
   cents: 7,
   depth: 0.28,
   level: 0.26,
+  // A hall. Wide, but the machine is in the middle of it with you.
+  width: 0.7,
 };
 
 export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
@@ -659,6 +661,8 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   // -- update --------------------------------------------------------------
 
   const update = (dt: number, elapsed: number): void => {
+    // The hall stays put and you orbit inside it.
+    drone.setBearing(camera.yaw);
     simDays += dt * settings.timeWarp;
     // Cube root: the warp slider nudges rotation speed without strobing it —
     // and at zero warp a whisper of rotation keeps the paused scene alive.

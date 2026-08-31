@@ -12,10 +12,19 @@
  * Seeded, from its own stream. A given world always hums at its own pitch, and
  * rerolling changes it — but `audio:<seed>` never touches the chapter's main
  * rng, so no layout on screen moves because a sound was drawn.
+ *
+ * The three parts are not stacked in one place. Each sits at its own distance
+ * and drifts on its own slow orbit around the listener, so what you are in is a
+ * space rather than a chord: the tones close and nearly centred, the air at
+ * middle distance sweeping one way, the partial far off and dull, sweeping the
+ * other. Three layers a listener can pull apart is the difference between depth
+ * and a loud bed — see spatial.ts for why the dulling with distance is doing
+ * more of that work than the level is.
  */
 
 import { Rng } from '../core/rng.ts';
 import type { AudioEngine, Voice } from './engine.ts';
+import { Place } from './spatial.ts';
 import { noiseBuffer, stopAndFree } from './util.ts';
 
 /**
@@ -28,7 +37,7 @@ import { noiseBuffer, stopAndFree } from './util.ts';
  * would read as a mistake rather than as a different place. A chromatic pick
  * would produce one about a third of the time.
  */
-const ROOTS = [55.0, 61.74, 65.41, 73.42, 82.41, 98.0];
+export const ROOTS = [55.0, 61.74, 65.41, 73.42, 82.41, 98.0];
 
 function pickRoot(rng: Rng): number {
   return rng.pick(ROOTS);
@@ -95,6 +104,12 @@ export interface Room {
   depth: number;
   /** Level into the ambient bus. */
   level: number;
+  /**
+   * How wide the room is: how far the air and the partial swing to either side
+   * as they drift, and how far off the partial sits. 0 collapses the room to
+   * the middle of your head, which is where a bed with no depth lives.
+   */
+  width: number;
 }
 
 /** How long the room takes to arrive, and to leave. */
@@ -119,6 +134,13 @@ export class Drone implements Voice {
   private oscHigh: OscillatorNode | null = null;
   private oscPartial: OscillatorNode | null = null;
   private partialGain: GainNode | null = null;
+  private placeTone: Place | null = null;
+  private placeAir: Place | null = null;
+  private placePartial: Place | null = null;
+  /** Each layer's own drift rate and starting angle, drawn from the seed. */
+  private readonly driftAir: number;
+  private readonly driftPartial: number;
+  private readonly driftTone: number;
   private air: AudioBufferSourceNode | null = null;
   private wobbleGain: GainNode | null = null;
   private fade: GainNode | null = null;
@@ -132,6 +154,22 @@ export class Drone implements Voice {
    */
   private clock = 0;
   private leaving = false;
+
+  /**
+   * Which way the listener is facing, in radians — the chapter's camera yaw.
+   *
+   * The room is fixed and you turn inside it, so dragging the view swings the
+   * layers around your head. It is the cheapest honest link there is between
+   * what a reader is doing and what they hear, and it is the thing that stops
+   * three drifting layers from sounding like an effect on a bed: they belong
+   * to the place rather than to the sound.
+   */
+  private bearing = 0;
+
+  /** Point the listener. Safe to call every frame with the same value. */
+  setBearing(radians: number): void {
+    this.bearing = radians;
+  }
 
   constructor(engine: AudioEngine, seed: string, room: Room) {
     this.engine = engine;
@@ -149,6 +187,12 @@ export class Drone implements Voice {
     // Slower than the wobble by an order of magnitude, and never a whole
     // multiple of it: the two must not line up into one obvious pulse.
     this.swellHz = room.wobbleHz * rng.range(0.11, 0.19);
+    // Three drift rates, all slower than anything else in the voice and none a
+    // simple ratio of another: the layers must never line up into one wide
+    // sound that swings as a block.
+    this.driftAir = rng.range(0.021, 0.037);
+    this.driftPartial = rng.range(0.013, 0.024);
+    this.driftTone = rng.range(0.008, 0.015);
     this.phase = rng.range(0, Math.PI * 2);
   }
 
@@ -177,11 +221,19 @@ export class Drone implements Voice {
     wobble.gain.value = 1;
     wobble.connect(fade);
 
+    // Three places, at three depths. The tones are here in the room with you
+    // and barely move; the air is at middle distance and sweeps; the partial is
+    // furthest, dullest and slowest. Nothing but the drift rates and the width
+    // separates them, and that is enough — see spatial.ts.
+    const placeTone = new Place(ctx, wobble, { farHz: 2600, farGain: 0.55 });
+    const placeAir = new Place(ctx, wobble, { nearHz: 9000, farHz: 900, farGain: 0.3 });
+    const placePartial = new Place(ctx, wobble, { nearHz: 6000, farHz: 700, farGain: 0.2 });
+
     const lowpass = ctx.createBiquadFilter();
     lowpass.type = 'lowpass';
     lowpass.frequency.value = this.root * room.cutoff;
     lowpass.Q.value = room.resonance;
-    lowpass.connect(wobble);
+    lowpass.connect(placeTone.input);
 
     // The root, as a sawtooth: it needs a second harmonic for the octave
     // partner to beat against, and a triangle has none. The lowpass takes the
@@ -212,7 +264,7 @@ export class Drone implements Voice {
     partial.detune.value = -this.detune;
     const partialGain = ctx.createGain();
     partialGain.gain.value = 0;
-    partial.connect(partialGain).connect(wobble);
+    partial.connect(partialGain).connect(placePartial.input);
 
     // The air underneath, which is what makes it a room and not a chord.
     const air = ctx.createBufferSource();
@@ -224,7 +276,7 @@ export class Drone implements Voice {
     band.Q.value = room.airQ;
     const airGain = ctx.createGain();
     airGain.gain.value = room.air;
-    air.connect(band).connect(airGain).connect(wobble);
+    air.connect(band).connect(airGain).connect(placeAir.input);
 
     low.start(now);
     high.start(now);
@@ -237,10 +289,16 @@ export class Drone implements Voice {
     this.oscHigh = high;
     this.oscPartial = partial;
     this.partialGain = partialGain;
+    this.placeTone = placeTone;
+    this.placeAir = placeAir;
+    this.placePartial = placePartial;
     this.air = air;
     this.wobbleGain = wobble;
     this.fade = fade;
-    this.chain = [lowGain, highGain, partialGain, band, airGain, lowpass, wobble, fade];
+    this.chain = [
+      lowGain, highGain, partialGain, band, airGain, lowpass, wobble, fade,
+      ...placeTone.nodes(), ...placeAir.nodes(), ...placePartial.nodes(),
+    ];
     this.engine.hold();
   }
 
@@ -270,6 +328,22 @@ export class Drone implements Voice {
     // only sometimes noticed.
     const swell = 0.5 - 0.5 * Math.cos(t * this.swellHz * Math.PI * 2);
     this.partialGain!.gain.setTargetAtTime(this.room.partialLevel * (0.2 + 0.8 * swell), now, 0.15);
+
+    // And move all three. Each rides its own slow circle around the listener:
+    // sin gives the side it is on, cos gives how near, so a layer is closest as
+    // it crosses the middle and furthest and dullest as it swings out wide.
+    // The partial runs backwards, so the room breathes open rather than
+    // rotating as a block.
+    // Subtracted, not added: turning your head to the right sends the room to
+    // the left, which is the only sign of this that is not disorienting.
+    const w = this.room.width;
+    const b = this.bearing;
+    const aAir = t * this.driftAir * Math.PI * 2 - b;
+    const aPar = -t * this.driftPartial * Math.PI * 2 + 2.4 - b;
+    const aTon = t * this.driftTone * Math.PI * 2 + 0.9 - b;
+    this.placeTone!.set(Math.sin(aTon) * w * 0.22, 0.86 + 0.14 * Math.cos(aTon), now, 0.3);
+    this.placeAir!.set(Math.sin(aAir) * w, 0.42 + 0.3 * Math.cos(aAir), now, 0.3);
+    this.placePartial!.set(Math.sin(aPar) * w * 0.85, 0.2 + 0.22 * Math.cos(aPar), now, 0.3);
   }
 
   stop(now: number): void {
@@ -301,6 +375,9 @@ export class Drone implements Voice {
     this.oscHigh = null;
     this.oscPartial = null;
     this.partialGain = null;
+    this.placeTone = null;
+    this.placeAir = null;
+    this.placePartial = null;
     this.air = null;
     this.wobbleGain = null;
     this.fade = null;

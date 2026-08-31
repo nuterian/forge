@@ -30,6 +30,40 @@ const STREAK_MAX = 19;
 const STREAK_LIFE = 0.62;
 const STREAK_DOTS = 16;
 
+/**
+ * How many stars may be close enough to hear at once, and what "close" means.
+ *
+ * A star's transverse offset never changes — only z does — so how near it will
+ * ever come is decided the moment it spawns, and it is exactly hypot(x, y).
+ * Stars are rejection-sampled away from anything under 0.212, so this threshold
+ * names a thin annulus just outside that: about one star in thirty passes near
+ * enough to be worth hearing, which at this field's turnover is one every few
+ * seconds. Fewer, and the sky is silent; more, and it is a drone with extra
+ * steps.
+ */
+const EAR_SLOTS = 2;
+const EAR_RADIUS = 0.3;
+/** The z a pass starts being heard at. Below this it takes about five seconds. */
+const EAR_Z = 0.28;
+/** The shortest gap between one pass beginning and the next. */
+const EAR_GAP = 2.4;
+
+/**
+ * What the sky tells the ear. Positions only — the star field decides what is
+ * happening and the audio decides what that sounds like, which is the same
+ * split every other event on this site keeps.
+ */
+export interface SkyEars {
+  /** Slot `slot` has claimed a star. */
+  begin(slot: number): void;
+  /** Where it is: `pan` -1..1 across the frame, `near` 0..1 as it closes. */
+  move(slot: number, pan: number, near: number): void;
+  /** It has gone — off the frame, or out of z. */
+  end(slot: number): void;
+  /** A shooting star has started, crossing at this pan. */
+  streak(pan: number): void;
+}
+
 export class Starfield {
   readonly element: HTMLCanvasElement;
   private readonly g: CanvasRenderingContext2D;
@@ -63,6 +97,11 @@ export class Starfield {
   private streakDy = 0;
 
   private still = false;
+
+  /** Which star each ear slot is following, or -1. */
+  private readonly earStar = new Int16Array(EAR_SLOTS).fill(-1);
+  private earCooldown = 0;
+  ears: SkyEars | null = null;
 
   constructor() {
     this.element = document.createElement('canvas');
@@ -132,10 +171,13 @@ export class Starfield {
     // piling up at the edges.
     const scale = Math.max(w, h) * 0.62;
     const step = this.still ? 0 : dt * SPEED;
+    this.earCooldown -= dt;
+    const halfW = Math.max(w * 0.5, 1);
 
     for (let i = 0; i < STAR_COUNT; i++) {
       let z = this.z[i]! - step;
       if (z <= 0.035) {
+        this.releaseEar(i);
         this.respawn(i, false);
         z = this.z[i]!;
       }
@@ -146,9 +188,14 @@ export class Starfield {
       if (px < -8 || px > w + 8 || py < -8 || py > h + 8) {
         // Off the page: send it back to the far distance rather than waiting
         // for z to run out, or half the field ends up outside the frame.
+        this.releaseEar(i);
         this.respawn(i, false);
         continue;
       }
+
+      // Heard, if it is one of the few coming close. The pan is simply where
+      // the star is on the page, so what you hear and what you see agree.
+      if (this.ears) this.trackEar(i, z, (px - this.focusX) / halfW);
 
       // Nearer stars are bigger and brighter — the whole sense of depth.
       const near = 1 - z;
@@ -162,6 +209,59 @@ export class Starfield {
 
     this.drawStreak(dt, w, h);
     g.globalAlpha = 1;
+  }
+
+  /**
+   * Claim, follow, or ignore one star for the ear.
+   *
+   * Deliberately does no allocation and no sorting: EAR_SLOTS is two, so
+   * finding whether a star is being followed is a two-element scan, and the
+   * first eligible star wins rather than the best one. A field this dense
+   * offers another candidate within seconds, and choosing the nearest would
+   * only mean always hearing the same kind of pass.
+   */
+  private trackEar(i: number, z: number, pan: number): void {
+    const near = Math.min(1, Math.max(0, (EAR_Z - z) / (EAR_Z - 0.035)));
+
+    for (let s = 0; s < EAR_SLOTS; s++) {
+      if (this.earStar[s] === i) {
+        this.ears!.move(s, pan, near);
+        return;
+      }
+    }
+
+    if (z > EAR_Z || this.earCooldown > 0) return;
+    const x = this.x[i]!;
+    const y = this.y[i]!;
+    if (x * x + y * y > EAR_RADIUS * EAR_RADIUS) return;
+
+    for (let s = 0; s < EAR_SLOTS; s++) {
+      if (this.earStar[s] !== -1) continue;
+      this.earStar[s] = i;
+      this.earCooldown = EAR_GAP;
+      this.ears!.begin(s);
+      this.ears!.move(s, pan, near);
+      return;
+    }
+  }
+
+  /** Let go of a star that has respawned or left the frame. */
+  private releaseEar(i: number): void {
+    for (let s = 0; s < EAR_SLOTS; s++) {
+      if (this.earStar[s] !== i) continue;
+      this.earStar[s] = -1;
+      this.ears?.end(s);
+      return;
+    }
+  }
+
+  /** Silence every slot — the sheet is leaving. */
+  clearEars(): void {
+    for (let s = 0; s < EAR_SLOTS; s++) {
+      if (this.earStar[s] === -1) continue;
+      this.earStar[s] = -1;
+      this.ears?.end(s);
+    }
   }
 
   /** One shooting star at a time, rare enough to stay a surprise. */
@@ -180,6 +280,7 @@ export class Starfield {
       const speed = this.rng.range(0.85, 1.5) * w;
       this.streakDx = Math.cos(angle) * speed;
       this.streakDy = Math.sin(angle) * speed;
+      this.ears?.streak(Math.min(1, Math.max(-1, (this.streakX - w * 0.5) / (w * 0.5))));
       return;
     }
 

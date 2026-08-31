@@ -72,6 +72,8 @@ const ROOM: Room = {
   cents: 10,
   depth: 0.22,
   level: 0.22,
+  // Close quarters: you are inside the thing, not standing off from it.
+  width: 0.46,
 };
 
 export function create(ctx: ChapterContext): ChapterInstance {
@@ -294,6 +296,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
   // rates without ever snapping the world to a new angle.
 
   const update = (dt: number): void => {
+    drone.setBearing(camera.yaw);
     orbitClock += dt * settings.pace;
     spinAngle += dt * settings.pace * params.spinRate * TAU;
     moonClock += dt * settings.pace;

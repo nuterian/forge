@@ -70,6 +70,8 @@ const ROOM: Room = {
   cents: 4,
   depth: 0.36,
   level: 0.34,
+  // A dome: the widest room here, and the air sweeps most of it.
+  width: 0.92,
 };
 
 export function create(ctx: ChapterContext): ChapterInstance {
@@ -763,6 +765,8 @@ export function create(ctx: ChapterContext): ChapterInstance {
   return {
     update(dt) {
       twinkleClock += dt;
+      // The dome stays put and you turn inside it.
+      drone.setBearing(camera.yaw);
 
       if (meteorAge >= 0) {
         meteorAge += dt;
