@@ -1,6 +1,6 @@
 # The Forge — a generated cosmos
 
-**[▶ Open the live build](https://nuterian.github.io/forge/)** &nbsp;·&nbsp; [![Deploy](https://github.com/nuterian/forge/actions/workflows/deploy.yml/badge.svg)](https://github.com/nuterian/forge/actions/workflows/deploy.yml)
+**[▶ Open the live build](https://jugalm.com/forge/)** &nbsp;·&nbsp; [![Deploy](https://github.com/nuterian/forge/actions/workflows/deploy.yml/badge.svg)](https://github.com/nuterian/forge/actions/workflows/deploy.yml)
 
 A redo of my NYU Spring 2015 Computer Graphics coursework (instructed by Ken Perlin)
 as a single showcase of fundamental graphics concepts: six chapters escalating from a
