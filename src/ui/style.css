@@ -725,19 +725,30 @@ input[type='range']::-moz-range-thumb {
   text-align: center;
 }
 
-/* --- The ink strip: today's cans, as physical chips ----------------------- */
+/* --- The colophon: colour bar and job line, in the bottom trim ------------ */
+/* Where a press sheet actually carries them. */
+
+.colophon {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: clamp(14px, 2.1vh, 26px) 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-faint);
+}
 
 .ink-strip {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin-top: clamp(12px, 1.9vh, 20px);
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .ink-chip {
-  width: 26px;
-  height: 13px;
+  width: 20px;
+  height: 9px;
   /* A chip of ink sitting on the sheet: a hairline of paper around it keeps
      a pale ink from dissolving into the page. */
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--paper) 55%, transparent);
@@ -837,16 +848,12 @@ input[type='range']::-moz-range-thumb {
   animation: masthead-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) 680ms both;
 }
 
-.gallery-header.is-printing .ink-strip {
-  animation: masthead-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) 780ms both;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .gallery-header.is-printing .gallery-title-the,
   .gallery-header.is-printing .gallery-title-forge,
   .gallery-header.is-printing .gallery-title::after,
-  .gallery-header.is-printing .gallery-subtitle,
-  .gallery-header.is-printing .ink-strip {
+  .gallery-header.is-printing .gallery-subtitle {
     animation: none;
   }
 }
@@ -958,10 +965,7 @@ input[type='range']::-moz-range-thumb {
 /* --- The edition line ---------------------------------------------------- */
 
 .edition-line {
-  text-align: center;
-  margin: clamp(14px, 2.1vh, 26px) 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--line-faint);
+  margin: 0;
   font-family: var(--font-mono);
   font-size: 9.5px;
   letter-spacing: 0.22em;

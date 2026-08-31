@@ -513,11 +513,13 @@ export class Gallery {
       computer graphics, hand-set in WebGL2 and WebGPU and printed in ink.</p>`;
     this.header = header;
 
-    // The ink strip: the cans open on the press today, as physical chips. Every
-    // colour is a custom property, so switching palettes reprints it for free.
+    // The colour bar: the cans open on the press today, as physical chips.
+    // Every colour is a custom property, so switching palettes reprints it for
+    // free. It belongs in the bottom trim with the job line, which is where a
+    // real press sheet carries it — under the masthead it read as a control,
+    // and there is no ink selector on the index for it to control.
     this.swatchStrip = document.createElement('div');
     this.swatchStrip.className = 'ink-strip';
-    header.append(this.swatchStrip);
 
     const grid = document.createElement('div');
     grid.className = 'gallery-grid';
@@ -533,7 +535,11 @@ export class Gallery {
     // justify-content.
     const sheet = document.createElement('div');
     sheet.className = 'gallery-sheet';
-    sheet.append(header, grid, editionLine());
+    const colophon = document.createElement('div');
+    colophon.className = 'colophon';
+    colophon.append(this.swatchStrip, editionLine());
+
+    sheet.append(header, grid, colophon);
     this.element.append(sheet);
   }
 
