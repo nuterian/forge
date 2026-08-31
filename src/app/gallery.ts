@@ -1,15 +1,31 @@
 /**
- * The index: a printer's proof sheet. Each chapter is a plate — a monochrome
- * line engraving when at rest, and on hover the plate is *inked*: color
- * floods in and the drawing starts to move.
+ * The index: a printer's proof sheet, and the sheet is *printed* in front of
+ * you. On arrival the press runs — the plates ink themselves in sequence, each
+ * one flooded by a colour front whose leading edge is an ordered-dither screen
+ * rather than a gradient — and then the sheet rests, inked and still.
+ *
+ * Resting inked is the whole point of the change. The old sheet was monochrome
+ * until you hovered a plate, which meant every phone and tablet in the world
+ * saw a grey page and nothing else: the front door of a project about colour,
+ * with the colour behind an interaction those devices do not have. Hover still
+ * does something (the plate starts moving, and lifts), but it is no longer
+ * what stands between a visitor and the ink.
+ *
+ * The whole sheet prints in the *active* palette, not one palette per plate.
+ * A proof sheet is one sheet of paper through one press: mixing three papers
+ * and three ink sets across six plates read as six unrelated thumbnails, and
+ * it left the swatch strip below describing colours that appeared nowhere on
+ * the page. Each plate's identity is carried by its drawing, which is more
+ * than distinct enough.
  *
  * Every vignette is a small 2D-canvas drawing, deterministic per chapter, so
- * the resting state costs one draw and only the hovered plate animates.
+ * the rested sheet costs one draw per plate and the rAF loop goes idle the
+ * moment nothing is moving.
  */
 
 import { CHAPTERS } from '../chapters/registry.ts';
 import type { ChapterDef } from './chapter.ts';
-import { PALETTES, DEFAULT_PALETTE, mixHex, type Palette } from '../ui/palette.ts';
+import { DEFAULT_PALETTE, mixHex, type Palette } from '../ui/palette.ts';
 import { Rng } from '../core/rng.ts';
 import { TAU } from '../core/math.ts';
 
@@ -29,9 +45,8 @@ type Vignette = (
   rng: Rng,
 ) => void;
 
-/** Resolve a chapter's palette into the vignette's ink set. */
-function inksFor(def: ChapterDef, colored: boolean): VignetteInk {
-  const palette: Palette = PALETTES.find((p) => p.id === def.palette) ?? DEFAULT_PALETTE;
+/** Resolve the sheet's palette into the vignette's ink set. */
+function inksFor(palette: Palette, colored: boolean): VignetteInk {
   if (colored) {
     return {
       paper: palette.paper,
@@ -40,7 +55,8 @@ function inksFor(def: ChapterDef, colored: boolean): VignetteInk {
       inks: palette.inks,
     };
   }
-  // The resting plate: pure line-work, no color anywhere.
+  // The un-inked plate: pure line-work, no colour anywhere. This is the state
+  // the press floods over, and the one unbuilt plates never leave.
   const mono = mixHex(palette.line, palette.paper, 0.45);
   return {
     paper: palette.paper,
@@ -55,13 +71,21 @@ function inksFor(def: ChapterDef, colored: boolean): VignetteInk {
 // ---------------------------------------------------------------------------
 
 const starChart: Vignette = (g, w, h, t, ink, rng) => {
+  // The one motion a star chart has is the sky turning, so the whole plate is
+  // drawn through a slow rotation about its centre. The field is scattered
+  // well past the frame — otherwise the corners swing out to bare paper.
+  g.save();
+  g.translate(w / 2, h / 2);
+  g.rotate(t * 0.035);
+  g.translate(-w / 2, -h / 2);
+
   // Field stars.
-  for (let i = 0; i < 110; i++) {
-    const x = rng.range(0.04, 0.96) * w;
-    const y = rng.range(0.06, 0.94) * h;
+  for (let i = 0; i < 150; i++) {
+    const x = rng.range(-0.15, 1.15) * w;
+    const y = rng.range(-0.25, 1.25) * h;
     const r = rng.power(0.4, 1.6, 2);
-    const twinkle = 0.55 + 0.45 * Math.sin(t * 2 + i * 1.7);
-    g.globalAlpha = (0.25 + rng.next() * 0.5) * (r < 0.8 ? twinkle : 1);
+    const twinkle = 0.4 + 0.6 * Math.sin(t * 2 + i * 1.7);
+    g.globalAlpha = (0.25 + rng.next() * 0.5) * (r < 1 ? twinkle : 1);
     g.fillStyle = ink.line;
     g.beginPath();
     g.arc(x, y, r, 0, TAU);
@@ -98,6 +122,8 @@ const starChart: Vignette = (g, w, h, t, ink, rng) => {
       g.fill();
     }
   }
+
+  g.restore();
 };
 
 const orrery: Vignette = (g, w, h, t, ink, rng) => {
@@ -368,12 +394,83 @@ const VIGNETTES: Record<string, Vignette> = {
 // The proof sheet itself.
 // ---------------------------------------------------------------------------
 
+/**
+ * The press screen: an 8×8 ordered-dither cell, at `level`/8 coverage, as a
+ * repeating pattern. The flood's leading edge is drawn as a short ramp of
+ * these, which is what makes it read as a screen breaking up rather than a
+ * gradient fading in — the same idea as the print pass's bayer8(), in DOM.
+ *
+ * Built at device resolution so the dots stay crisp on a retina panel while
+ * keeping the same physical size on the page.
+ */
+const BAYER8 = [
+   0, 32,  8, 40,  2, 34, 10, 42,
+  48, 16, 56, 24, 50, 18, 58, 26,
+  12, 44,  4, 36, 14, 46,  6, 38,
+  60, 28, 52, 20, 62, 30, 54, 22,
+   3, 35, 11, 43,  1, 33,  9, 41,
+  51, 19, 59, 27, 49, 17, 57, 25,
+  15, 47,  7, 39, 13, 45,  5, 37,
+  63, 31, 55, 23, 61, 29, 53, 21,
+];
+
+/** Coverage steps in the flood's edge — one pattern each, built once. */
+const SCREEN_STEPS = 7;
+
+function buildScreens(g: CanvasRenderingContext2D, scale: number): CanvasPattern[] {
+  const size = 8 * scale;
+  const patterns: CanvasPattern[] = [];
+  for (let level = 1; level <= SCREEN_STEPS; level++) {
+    const cell = document.createElement('canvas');
+    cell.width = size;
+    cell.height = size;
+    const cg = cell.getContext('2d')!;
+    const image = cg.createImageData(size, size);
+    const cut = (level / 8) * 64;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const on = BAYER8[((y / scale) | 0) * 8 + ((x / scale) | 0)]! < cut;
+        const i = (y * size + x) * 4;
+        image.data[i] = 255;
+        image.data[i + 1] = 255;
+        image.data[i + 2] = 255;
+        image.data[i + 3] = on ? 255 : 0;
+      }
+    }
+    cg.putImageData(image, 0, 0);
+    patterns.push(g.createPattern(cell, 'repeat')!);
+  }
+  return patterns;
+}
+
+/** The squeegee's angle. One direction for the whole sheet: one pull, one press. */
+const FLOOD_ANGLE = -0.36;
+/** How long a single plate takes to ink, and how far apart the plates start. */
+const FLOOD_MS = 620;
+const FLOOD_STAGGER = 120;
+/** Width of the dithered edge, as a fraction of the sweep's length. */
+const FLOOD_EDGE = 0.34;
+
+/**
+ * The vignette clock a rested plate is frozen at. Far enough in that every
+ * figure has finished drawing itself, and hover picks up from exactly here,
+ * so nothing jumps when the pointer arrives.
+ */
+const REST_T = 3.2;
+
 interface Tile {
   def: ChapterDef;
   canvas: HTMLCanvasElement;
   g: CanvasRenderingContext2D;
+  /** Plates ink in sheet order; unbuilt ones never do. */
+  order: number;
+  inkable: boolean;
   hovered: boolean;
+  /** The vignette clock. Frozen except while this plate is hovered. */
+  t: number;
+  /** performance.now() when the current hover began, and the clock then. */
   hoverStart: number;
+  hoverBaseT: number;
 }
 
 export class Gallery {
@@ -382,23 +479,53 @@ export class Gallery {
   private frameId = 0;
   private animating = false;
 
+  private palette: Palette = DEFAULT_PALETTE;
+  /** The palette the sheet on screen was printed in, or null if unprinted. */
+  private printedIn: string | null = null;
+  /** performance.now() at the start of the press run, or 0 when not running. */
+  private pressStart = 0;
+
+  private readonly swatchStrip: HTMLElement;
+  private header!: HTMLElement;
+
+  // Press scratch, allocated once: the colour plate, and the mask that decides
+  // how much of it has landed. Both track the tile size.
+  private readonly scratch = document.createElement('canvas');
+  private readonly mask = document.createElement('canvas');
+  private screens: CanvasPattern[] | null = null;
+  private screenScale = 0;
+
   constructor() {
     this.element = document.createElement('div');
     this.element.className = 'gallery';
 
+    // The masthead is set the way a poster's would be: the article tiny and
+    // widely letterspaced, the name enormous and tightly tracked. The size
+    // jump between the two words is the whole effect.
     const header = document.createElement('header');
     header.className = 'gallery-header';
     header.innerHTML = `
-      <h1 class="gallery-title">The Forge</h1>
+      <h1 class="gallery-title">
+        <span class="gallery-title-the">The</span>
+        <span class="gallery-title-forge">Forge</span>
+      </h1>
       <p class="gallery-subtitle">A generated cosmos — six chapters of fundamental
       computer graphics, hand-set in WebGL2 and WebGPU and printed in ink.</p>`;
+    this.header = header;
+
+    // The ink strip: the cans open on the press today, as physical chips. Every
+    // colour is a custom property, so switching palettes reprints it for free.
+    this.swatchStrip = document.createElement('div');
+    this.swatchStrip.className = 'ink-strip';
+    header.append(this.swatchStrip);
 
     const grid = document.createElement('div');
     grid.className = 'gallery-grid';
 
+    let order = 0;
     for (const def of CHAPTERS) {
       if (def.hidden) continue;
-      grid.append(this.buildTile(def));
+      grid.append(this.buildTile(def, order++));
     }
 
     // One sheet holding header and grid, centered in the viewport by auto
@@ -406,11 +533,11 @@ export class Gallery {
     // justify-content.
     const sheet = document.createElement('div');
     sheet.className = 'gallery-sheet';
-    sheet.append(header, grid);
+    sheet.append(header, grid, editionLine());
     this.element.append(sheet);
   }
 
-  private buildTile(def: ChapterDef): HTMLElement {
+  private buildTile(def: ChapterDef, order: number): HTMLElement {
     const tile = document.createElement(def.available ? 'a' : 'div');
     tile.className = 'plate';
     if (def.available) {
@@ -443,25 +570,46 @@ export class Gallery {
 
     const g = canvas.getContext('2d');
     if (g) {
-      const entry: Tile = { def, canvas, g, hovered: false, hoverStart: 0 };
+      const entry: Tile = {
+        def, canvas, g, order,
+        inkable: def.available,
+        hovered: false,
+        t: REST_T,
+        hoverStart: 0,
+        hoverBaseT: REST_T,
+      };
       this.tiles.push(entry);
 
-      tile.addEventListener('pointerenter', () => {
+      const enter = (): void => {
         entry.hovered = true;
         entry.hoverStart = performance.now();
+        entry.hoverBaseT = entry.t;
         this.ensureAnimating();
-      });
-      tile.addEventListener('pointerleave', () => {
+      };
+      // Leaving freezes the plate wherever it got to rather than snapping it
+      // back to REST_T: a rested plate is *any* still frame of itself, and a
+      // jump on pointer-out reads as a glitch.
+      const leave = (): void => {
         entry.hovered = false;
-        this.renderTile(entry, 0);
-      });
+        this.renderTile(entry, 1);
+      };
+
+      tile.addEventListener('pointerenter', enter);
+      tile.addEventListener('pointerleave', leave);
+      // Keyboard reaches the same state the pointer does.
+      tile.addEventListener('focus', enter);
+      tile.addEventListener('blur', leave);
     }
 
     return tile;
   }
 
-  /** Draw one plate. t > 0 means hovered (inked and moving). */
-  private renderTile(tile: Tile, t: number): void {
+  /**
+   * Draw one plate. `flood` is how much of the colour plate has landed:
+   * 0 is bare line-work, 1 is fully inked, and anything between paints the
+   * colour over the line-work through the press screen.
+   */
+  private renderTile(tile: Tile, flood: number): void {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const rect = tile.canvas.getBoundingClientRect();
     if (rect.width < 2) return;
@@ -472,35 +620,148 @@ export class Gallery {
       tile.canvas.height = h;
     }
 
-    const g = tile.g;
-    const colored = t > 0;
-    const ink = inksFor(tile.def, colored);
+    // The un-inked plate, always: it is both the resting state of an unbuilt
+    // chapter and the surface everything else is printed onto.
+    this.paint(tile.g, tile.def, rect.width, rect.height, tile.t, false, dpr);
+    if (flood <= 0.001) return;
 
+    if (flood >= 0.999) {
+      this.paint(tile.g, tile.def, rect.width, rect.height, tile.t, true, dpr);
+      return;
+    }
+
+    // Partial: the colour plate, masked by the screen, composited on top.
+    if (this.scratch.width !== w || this.scratch.height !== h) {
+      this.scratch.width = w;
+      this.scratch.height = h;
+      this.mask.width = w;
+      this.mask.height = h;
+    }
+    const sg = this.scratch.getContext('2d')!;
+    const mg = this.mask.getContext('2d')!;
+
+    sg.setTransform(1, 0, 0, 1, 0, 0);
+    sg.globalCompositeOperation = 'source-over';
+    sg.clearRect(0, 0, w, h);
+    this.paint(sg, tile.def, rect.width, rect.height, tile.t, true, dpr);
+
+    this.paintMask(mg, w, h, flood, dpr);
+
+    sg.setTransform(1, 0, 0, 1, 0, 0);
+    sg.globalAlpha = 1;
+    sg.globalCompositeOperation = 'destination-in';
+    sg.drawImage(this.mask, 0, 0);
+    sg.globalCompositeOperation = 'source-over';
+
+    tile.g.setTransform(1, 0, 0, 1, 0, 0);
+    tile.g.globalAlpha = 1;
+    tile.g.drawImage(this.scratch, 0, 0);
+  }
+
+  /** One vignette, on its paper, in the given ink state. */
+  private paint(
+    g: CanvasRenderingContext2D,
+    def: ChapterDef,
+    w: number,
+    h: number,
+    t: number,
+    colored: boolean,
+    dpr: number,
+  ): void {
+    const ink = inksFor(this.palette, colored);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.globalAlpha = 1;
     g.fillStyle = ink.paper;
-    g.fillRect(0, 0, rect.width, rect.height);
+    g.fillRect(0, 0, w, h);
 
-    const vignette = VIGNETTES[tile.def.id];
-    if (vignette) {
-      // Deterministic: the same plate every visit.
-      vignette(g, rect.width, rect.height, t, ink, new Rng(`plate-${tile.def.id}`));
-    }
+    const vignette = VIGNETTES[def.id];
+    // Deterministic: the same plate every visit.
+    if (vignette) vignette(g, w, h, t, ink, new Rng(`plate-${def.id}`));
     g.globalAlpha = 1;
   }
 
-  /** Animation runs only while at least one plate is hovered. */
+  /**
+   * The flood's coverage, in device pixels: opaque where the colour has
+   * fully landed, then a short ramp of dither screens along the leading edge,
+   * then nothing. Eight fills, whatever the size of the plate.
+   */
+  private paintMask(g: CanvasRenderingContext2D, w: number, h: number, flood: number, dpr: number): void {
+    const scale = Math.max(1, Math.round(dpr));
+    if (!this.screens || this.screenScale !== scale) {
+      this.screens = buildScreens(g, scale);
+      this.screenScale = scale;
+    }
+
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = 1;
+    g.clearRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h / 2;
+    const dx = Math.cos(FLOOD_ANGLE);
+    const dy = Math.sin(FLOOD_ANGLE);
+    // Half-extents of the plate along the sweep and across it.
+    const reach = Math.abs(w * dx) / 2 + Math.abs(h * dy) / 2;
+    const across = (Math.abs(w * dy) + Math.abs(h * dx)) / 2 + 2;
+    const edge = reach * 2 * FLOOD_EDGE;
+    // The front travels from just off one side to just off the other, so the
+    // last plate pixel is covered exactly when flood hits 1.
+    const front = -reach - edge + flood * (reach * 2 + edge);
+
+    // P(u, s) = centre + along*u + across*s, so a strip of the sweep is one
+    // quad in unrotated space — which keeps the screen's own grid axis-aligned
+    // instead of shearing it with the squeegee.
+    const quad = (u0: number, u1: number): void => {
+      g.beginPath();
+      g.moveTo(cx + dx * u0 - dy * across, cy + dy * u0 + dx * across);
+      g.lineTo(cx + dx * u1 - dy * across, cy + dy * u1 + dx * across);
+      g.lineTo(cx + dx * u1 + dy * across, cy + dy * u1 - dx * across);
+      g.lineTo(cx + dx * u0 + dy * across, cy + dy * u0 - dx * across);
+      g.closePath();
+      g.fill();
+    };
+
+    const span = reach + edge;
+    g.fillStyle = '#fff';
+    quad(-span, front);
+
+    for (let k = 0; k < SCREEN_STEPS; k++) {
+      const u0 = front + (edge * k) / SCREEN_STEPS;
+      const u1 = front + (edge * (k + 1)) / SCREEN_STEPS;
+      if (u0 > span) break;
+      g.fillStyle = this.screens[SCREEN_STEPS - 1 - k]!;
+      quad(u0, u1);
+    }
+  }
+
+  /** Runs while the press is running or a plate is hovered — never otherwise. */
   private ensureAnimating(): void {
     if (this.animating) return;
     this.animating = true;
-    const tick = (now: number) => {
-      let any = false;
+    const tick = (now: number): void => {
+      let busy = false;
+
+      if (this.pressStart > 0) {
+        let done = true;
+        for (const tile of this.tiles) {
+          if (!tile.inkable) continue;
+          const flood = clamp01((now - this.pressStart - tile.order * FLOOD_STAGGER) / FLOOD_MS);
+          if (flood < 1) done = false;
+          // A plate the pointer has already found animates on its own below.
+          if (!tile.hovered) this.renderTile(tile, flood);
+        }
+        if (done) this.pressStart = 0;
+        else busy = true;
+      }
+
       for (const tile of this.tiles) {
         if (!tile.hovered) continue;
-        any = true;
-        this.renderTile(tile, (now - tile.hoverStart) / 1000 + 0.001);
+        busy = true;
+        tile.t = tile.hoverBaseT + (now - tile.hoverStart) / 1000;
+        this.renderTile(tile, tile.inkable && this.pressStart === 0 ? 1 : this.floodOf(tile, now));
       }
-      if (any && this.element.isConnected && this.element.style.display !== 'none') {
+
+      if (busy && this.element.isConnected && this.element.style.display !== 'none') {
         this.frameId = requestAnimationFrame(tick);
       } else {
         this.animating = false;
@@ -509,11 +770,58 @@ export class Gallery {
     this.frameId = requestAnimationFrame(tick);
   }
 
-  show(): void {
+  private floodOf(tile: Tile, now: number): number {
+    if (!tile.inkable) return 0;
+    if (this.pressStart === 0) return 1;
+    return clamp01((now - this.pressStart - tile.order * FLOOD_STAGGER) / FLOOD_MS);
+  }
+
+  show(palette: Palette): void {
     this.element.style.display = '';
-    // Fonts/layout settle before first paint of the plates.
+    this.palette = palette;
+    this.element.style.cursor = registrationCursor(palette);
+    this.paintSwatches();
+    this.runMasthead();
+
+    // A sheet is printed once. It goes back through the press only when the
+    // inks change — which is the one thing that makes the sheet on screen
+    // wrong rather than merely already-seen.
+    const reprint = this.printedIn !== palette.id;
+    this.printedIn = palette.id;
+
+    // Fonts and layout settle before the first plate is drawn.
     requestAnimationFrame(() => {
-      for (const tile of this.tiles) this.renderTile(tile, 0);
+      if (reprint) {
+        for (const tile of this.tiles) tile.t = REST_T;
+        this.pressStart = performance.now();
+        this.ensureAnimating();
+      } else if (this.pressStart === 0) {
+        // Only when nothing is running: show() can be called twice for one
+        // arrival (a route sync and a hashchange), and the second call must
+        // not paint a finished sheet over a press run still in progress.
+        for (const tile of this.tiles) this.renderTile(tile, tile.inkable ? 1 : 0);
+      }
+    });
+  }
+
+  /**
+   * Re-run the masthead's entrance. CSS animations only fire when an element
+   * is created or its animation changes, so the class comes off, the layout is
+   * flushed, and it goes back on.
+   */
+  private runMasthead(): void {
+    this.header.classList.remove('is-printing');
+    void this.header.offsetWidth;
+    this.header.classList.add('is-printing');
+  }
+
+  private paintSwatches(): void {
+    this.swatchStrip.replaceChildren();
+    this.palette.inks.forEach((_, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'ink-chip';
+      chip.style.background = `var(--ink-${i})`;
+      this.swatchStrip.append(chip);
     });
   }
 
@@ -521,5 +829,44 @@ export class Gallery {
     this.element.style.display = 'none';
     cancelAnimationFrame(this.frameId);
     this.animating = false;
+    // Abandoning a half-printed sheet would leave it half-inked on return.
+    this.pressStart = 0;
+    this.printedIn = null;
   }
+}
+
+function clamp01(x: number): number {
+  return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
+/** The colophon: what this sheet is, and when it came off the press. */
+function editionLine(): HTMLElement {
+  const el = document.createElement('p');
+  el.className = 'edition-line';
+  const now = new Date();
+  const stamp =
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-` +
+    `${String(now.getDate()).padStart(2, '0')}`;
+  el.textContent = `Proof sheet · The Forge Press · Printed ${stamp}`;
+  return el;
+}
+
+/**
+ * The registration target, as the pointer.
+ *
+ * It started as furniture printed on the sheet — trim marks at the corners,
+ * targets top and bottom — and that was one decoration too many: it crowded
+ * the plates, and the bottom-left mark ran a rule straight through the
+ * edition line. The mark is better used than displayed. Here it is the cursor,
+ * so the reader lines the sheet up themselves.
+ *
+ * A cursor cannot read a custom property, so the target is built from the
+ * active palette's line ink each time the sheet is printed.
+ */
+function registrationCursor(palette: Palette): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" ` +
+    `stroke="${palette.line}" stroke-width="1.25" opacity="0.9">` +
+    `<circle cx="12" cy="12" r="6"/><path d="M12 1v7M12 16v7M1 12h7M16 12h7"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
 }

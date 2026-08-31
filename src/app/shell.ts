@@ -291,7 +291,7 @@ export class Shell {
       this.gallery = new Gallery();
       this.root.append(this.gallery.element);
     }
-    this.gallery.show();
+    this.gallery.show(this.palette);
   }
 
   private hideGallery(): void {

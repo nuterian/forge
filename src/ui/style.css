@@ -615,12 +615,15 @@ input[type='range']::-moz-range-thumb {
   background: var(--paper);
   display: flex;
   flex-direction: column;
-  padding: clamp(24px, 5vh, 64px) clamp(20px, 6vw, 96px);
+  padding: clamp(20px, 3.6vh, 56px) clamp(20px, 6vw, 96px);
   /* Clear the notch and the home indicator: the sheet scrolls edge to edge. */
-  padding-top: max(clamp(24px, 5vh, 64px), env(safe-area-inset-top));
+  padding-top: max(clamp(20px, 3.6vh, 56px), env(safe-area-inset-top));
   padding-right: max(clamp(20px, 6vw, 96px), env(safe-area-inset-right));
-  padding-bottom: calc(clamp(24px, 5vh, 64px) + env(safe-area-inset-bottom));
+  padding-bottom: calc(clamp(20px, 3.6vh, 56px) + env(safe-area-inset-bottom));
   padding-left: max(clamp(20px, 6vw, 96px), env(safe-area-inset-left));
+  /* The registration target the sheet used to wear in its margins is the
+     pointer instead; gallery.ts sets the palette-inked version inline. */
+  cursor: crosshair;
 }
 
 /* The proof sheet sits dead-centre of the viewport, both axes, via auto
@@ -632,45 +635,160 @@ input[type='range']::-moz-range-thumb {
 .gallery-sheet {
   margin: auto;
   width: 100%;
-  max-width: 1180px;
+  /* The sheet is as wide as the page allows, but a short window gets a
+     narrower one: plate height follows plate width, and on a 720px-tall
+     laptop full-width plates make two rows taller than the screen. Trading
+     width for a sheet that arrives whole is the right way round. */
+  max-width: min(1180px, 138vh);
 }
 
 .gallery-header {
-  margin: 0 0 34px;
+  margin: 0 0 clamp(16px, 2.6vh, 34px);
+  text-align: center;
 }
 
+/* --- The ink strip: today's cans, as physical chips ----------------------- */
+
+.ink-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: clamp(12px, 1.9vh, 20px);
+}
+
+.ink-chip {
+  width: 26px;
+  height: 13px;
+  /* A chip of ink sitting on the sheet: a hairline of paper around it keeps
+     a pale ink from dissolving into the page. */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--paper) 55%, transparent);
+}
+
+
+/* The masthead. Two words, wildly different sizes: a hairline mono article
+   over a display-weight name big enough to be the sheet's whole top third. */
 .gallery-title {
   margin: 0;
-  font-size: clamp(34px, 5vw, 58px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1;
   text-transform: uppercase;
+}
+
+.gallery-title-the {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: clamp(10px, 1.3vw, 14px);
+  letter-spacing: 0.66em;
+  /* Letterspacing hangs off the last glyph, so a centred word sits half a
+     space left of centre. Indenting by one space puts it back. */
+  text-indent: 0.66em;
+  color: var(--line-dim);
+  margin-bottom: clamp(4px, 0.9vh, 10px);
+}
+
+/* Sized against whichever axis is tighter. A width-only clamp made the name
+   enormous on a wide, short desktop and pushed the bottom row of plates off
+   the screen — the sheet has to arrive whole. */
+.gallery-title-forge {
+  font-size: clamp(40px, min(8.6vw, 9.8vh), 108px);
+  letter-spacing: -0.035em;
+  line-height: 0.84;
 }
 
 .gallery-title::after {
   content: '';
   display: block;
-  width: 64px;
+  width: 84px;
   height: 3px;
-  margin-top: 12px;
+  margin-top: clamp(9px, 1.5vh, 18px);
   background: var(--ink);
 }
 
 .gallery-subtitle {
-  margin: 14px 0 0;
+  margin: clamp(10px, 1.7vh, 18px) auto 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: clamp(10.5px, 1.05vh, 12px);
   line-height: 1.6;
   letter-spacing: 0.04em;
   color: var(--line-dim);
   max-width: 58ch;
 }
 
+/* --- The masthead's entrance ---------------------------------------------- */
+/* One press stroke: the article drops in, the name settles down out of an
+   oversize, loosely-tracked ghost of itself, then the rule is drawn and the
+   supporting type rises. Expo-out throughout — it arrives fast and lands soft,
+   which is what makes the size change read as weight rather than as a zoom. */
+
+@keyframes masthead-the {
+  from { opacity: 0; transform: translateY(-10px); letter-spacing: 1.15em; }
+  to   { opacity: 1; transform: none; letter-spacing: 0.66em; }
+}
+
+@keyframes masthead-name {
+  from { opacity: 0; transform: scale(1.16); letter-spacing: 0.1em; }
+  to   { opacity: 1; transform: none; letter-spacing: -0.035em; }
+}
+
+@keyframes masthead-rule {
+  from { width: 0; }
+  to   { width: 84px; }
+}
+
+@keyframes masthead-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.gallery-header.is-printing .gallery-title-the {
+  animation: masthead-the 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.gallery-header.is-printing .gallery-title-forge {
+  animation: masthead-name 900ms cubic-bezier(0.16, 1, 0.3, 1) 90ms both;
+}
+
+.gallery-header.is-printing .gallery-title::after {
+  animation: masthead-rule 520ms cubic-bezier(0.16, 1, 0.3, 1) 600ms both;
+}
+
+.gallery-header.is-printing .gallery-subtitle {
+  animation: masthead-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) 680ms both;
+}
+
+.gallery-header.is-printing .ink-strip {
+  animation: masthead-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) 780ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gallery-header.is-printing .gallery-title-the,
+  .gallery-header.is-printing .gallery-title-forge,
+  .gallery-header.is-printing .gallery-title::after,
+  .gallery-header.is-printing .gallery-subtitle,
+  .gallery-header.is-printing .ink-strip {
+    animation: none;
+  }
+}
+
+/* Explicit column counts rather than auto-fill: the sheet should land whole on
+   a landscape desktop, and that depends on how many ROWS the plates make. A
+   300px auto-fill minimum kept a 1000px-wide window at two columns and three
+   rows, which pushed the last row and the edition line off the screen. */
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 22px;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+@media (min-width: 620px) {
+  .gallery-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (min-width: 900px) {
+  .gallery-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
 .plate {
@@ -693,10 +811,15 @@ input[type='range']::-moz-range-thumb {
   height: 100%;
 }
 
-.plate:not(.is-unprinted):hover .plate-frame {
+.plate:not(.is-unprinted):hover .plate-frame,
+.plate:not(.is-unprinted):focus-visible .plate-frame {
   border-color: var(--ink);
   transform: translateY(-3px);
   box-shadow: 0 14px 34px -18px var(--ink);
+}
+
+.plate:focus-visible {
+  outline: none;
 }
 
 .plate-stamp {
@@ -752,6 +875,20 @@ input[type='range']::-moz-range-thumb {
 
 .plate.is-unprinted .plate-name {
   color: var(--line-dim);
+}
+
+/* --- The edition line ---------------------------------------------------- */
+
+.edition-line {
+  text-align: center;
+  margin: clamp(14px, 2.1vh, 26px) 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-faint);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--line-faint);
 }
 
 /* --- Narrow screens ------------------------------------------------------- */
