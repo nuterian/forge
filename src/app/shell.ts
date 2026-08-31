@@ -12,6 +12,7 @@ import { registerChunks } from '../gl/chunks.ts';
 import { Framebuffer } from '../gl/framebuffer.ts';
 import { PrintPass, DEFAULT_PRINT } from '../gl/post.ts';
 import { AudioEngine } from '../audio/engine.ts';
+import { CameraMotion } from '../audio/motion.ts';
 import { switchCue } from '../audio/ui.ts';
 import { Gallery } from './gallery.ts';
 import { ControlPanel } from '../ui/controls.ts';
@@ -61,6 +62,19 @@ export class Shell {
    * gesture, which is the only moment a browser would allow one anyway.
    */
   private readonly audio = new AudioEngine();
+  /**
+   * The sound of moving, played by whoever is dragging.
+   *
+   * Shell-owned rather than per-chapter because the camera is: every chapter
+   * gets it for free and none of them has to remember to ask. It is added to
+   * the engine once and lives for the session — the voice is silent at rest,
+   * so there is nothing to start or stop.
+   */
+  private readonly motion = new CameraMotion(this.audio);
+  /** Last frame's camera pose, for the velocity the motion voice is made of. */
+  private lastYaw = 0;
+  private lastPitch = 0;
+  private readonly lastEye = vec3.create();
 
   /**
    * The chapter wipe. Arriving at a chapter pulls the image across the frame
@@ -150,6 +164,7 @@ export class Shell {
     this.buildChrome();
     this.applyPalette(this.palette);
 
+    this.audio.addVoice(this.motion);
     this.loop = new Loop((dt, elapsed) => this.frame(dt, elapsed));
     this.loop.start();
 
@@ -642,6 +657,7 @@ export class Shell {
     this.camera.update(dt, aspect);
 
     this.advanceTransition();
+    this.driveMotion(dt);
     this.audio.update(dt);
 
     if (this.reveal < 1) {
@@ -669,6 +685,41 @@ export class Shell {
 
     this.labels.update(this.camera, rect.width, rect.height);
     this.chapterPanel?.refresh();
+  }
+
+  /**
+   * Hand the motion voice this frame's camera velocity.
+   *
+   * Two measures, because the chapters move in two different ways. The Star
+   * Chart's sky is at infinity and its camera never travels a millimetre while
+   * you pan it, so panning only shows up as angular rate; the Orrery and
+   * Worldsmith you fly through, and that only shows up as linear rate. The
+   * voice takes the larger of the two.
+   *
+   * The pan comes off the yaw delta, so a drag to the left sends the sound
+   * left. Nothing is allocated: the previous eye position is scratch held at
+   * shell scope.
+   */
+  private driveMotion(dt: number): void {
+    if (dt <= 0) return;
+    const cam = this.camera;
+
+    // Wrapped: yaw runs unbounded, and the wrap must not read as a slew.
+    let dyaw = cam.yaw - this.lastYaw;
+    if (dyaw > Math.PI) dyaw -= Math.PI * 2;
+    else if (dyaw < -Math.PI) dyaw += Math.PI * 2;
+    const dpitch = cam.pitch - this.lastPitch;
+    this.lastYaw = cam.yaw;
+    this.lastPitch = cam.pitch;
+
+    const ex = cam.position[0]! - this.lastEye[0]!;
+    const ey = cam.position[1]! - this.lastEye[1]!;
+    const ez = cam.position[2]! - this.lastEye[2]!;
+    vec3.copy(this.lastEye, cam.position);
+
+    const angular = Math.hypot(dyaw, dpitch) / dt;
+    const linear = Math.hypot(ex, ey, ez) / dt;
+    this.motion.drive(angular, linear, Math.max(-1, Math.min(1, dyaw * 26)));
   }
 
   /**

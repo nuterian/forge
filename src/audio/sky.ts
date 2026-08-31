@@ -1,10 +1,9 @@
 /**
  * The sky's own sounds: things that go past you.
  *
- * The index is a journey — the sheet's star field has been drifting toward the
- * masthead since the page opened — and a bed alone cannot say that. Travel is
- * not a texture, it is things arriving and leaving, so the stars that actually
- * come close enough to matter get heard doing it. The star field reports them;
+ * Travel is not a texture, it is things arriving and leaving. There is no bed
+ * under any of this — the index is silent except for the stars that actually
+ * come close enough to matter, heard doing it. The star field reports them;
  * nothing here invents an event.
  *
  * Every pass is pitched from the same six roots the beds are tuned to, three
@@ -14,12 +13,12 @@
 
 import { Rng } from '../core/rng.ts';
 import type { AudioEngine, Voice } from './engine.ts';
-import { ROOTS } from './drone.ts';
+import { ROOTS } from './tuning.ts';
 import { Place } from './spatial.ts';
 import { noiseBuffer, stopAndFree, strike } from './util.ts';
 
-/** How loud one pass is allowed to be against the bed it sits over. */
-const PASS_LEVEL = 0.1;
+/** How loud one pass gets at its closest. Subtle: a suggestion, not an event. */
+const PASS_LEVEL = 0.13;
 /** The fade when a pass is cut short — a star respawning, or a page leaving. */
 const PASS_OUT = 0.35;
 
@@ -90,7 +89,7 @@ export class StarPass implements Voice {
     b.type = 'sine';
     b.frequency.value = this.pitch * 1.5;
     const bGain = ctx.createGain();
-    bGain.gain.value = PASS_LEVEL * 0.2;
+    bGain.gain.value = PASS_LEVEL * 0.22;
     b.connect(bGain).connect(env);
 
     const breath = ctx.createBufferSource();
@@ -101,7 +100,9 @@ export class StarPass implements Voice {
     band.frequency.value = this.pitch;
     band.Q.value = this.breathQ;
     const breathGain = ctx.createGain();
-    breathGain.gain.value = PASS_LEVEL * 0.5;
+    // Well under the tones. Noise is the first thing an ear finds and the
+    // first thing it tires of; this is here for breath, not for texture.
+    breathGain.gain.value = PASS_LEVEL * 0.22;
     breath.connect(band).connect(breathGain).connect(env);
 
     a.start(now);
@@ -126,12 +127,17 @@ export class StarPass implements Voice {
 
     this.place.set(this.pan, this.near, now, 0.25);
 
-    // Swell in, hold, and let go as it leaves the frame. `near` only ever
-    // rises, so the shape is read off it directly rather than off a clock —
-    // the sound is a function of where the star is, not of how long it has
-    // been sounding.
-    const shape = smoothstep(0, 0.22, this.near) * (1 - smoothstep(0.76, 1, this.near));
-    this.env!.gain.setTargetAtTime(shape, now, 0.22);
+    // A narrow window around the closest part of the approach, not the whole
+    // of it. The star is in view for five seconds or so; it is audible for
+    // about one and a half of them, and gone well before it leaves. A sound
+    // that lasts as long as the thing that caused it stops being an event and
+    // starts being a drone, which is the one thing this site does not do.
+    //
+    // `near` only ever rises, so the shape is read off it directly rather than
+    // off a clock: the sound is a function of where the star is, not of how
+    // long it has been sounding.
+    const shape = smoothstep(0.42, 0.68, this.near) * (1 - smoothstep(0.74, 0.92, this.near));
+    this.env!.gain.setTargetAtTime(shape, now, 0.12);
 
     // Doppler, and then a stylisation. The rise is real: the star is closing,
     // so its pitch climbs. Nothing in this field ever recedes — a star that

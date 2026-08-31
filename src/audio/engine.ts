@@ -40,10 +40,15 @@ const BUS_TRIM: Record<BusName, number> = {
 };
 
 /**
- * Master level with sound on. Deliberately low: the whole thing should sit
- * under a listener's attention until they think about it.
+ * Master level with sound on.
+ *
+ * Raised once nothing sustained any more. A bed has to be set low because it
+ * never stops and anything that never stops becomes fatiguing; a site whose
+ * every sound is a short one, with silence between, can afford headroom the
+ * bed could not. The limiter on the output covers the case where several land
+ * in the same second.
  */
-const MASTER_GAIN = 0.34;
+const MASTER_GAIN = 0.5;
 
 /** How long the master takes to open and close. Long enough never to click. */
 const MASTER_RAMP = 0.14;
@@ -57,6 +62,17 @@ const MASTER_RAMP = 0.14;
  * a reader most wants to know something happened.
  */
 const OFF_HOLD = 0.17;
+
+/**
+ * How long the master takes to duck when the page stops being attended to.
+ *
+ * Long enough to be a fade rather than a cut. The old behaviour suspended the
+ * context outright the moment the tab was hidden, which is the hard cut this
+ * production makes nowhere else — it was only forgivable because nobody is
+ * listening to a tab they have just left. They are listening to the one they
+ * just came back to, though, and that arrives on the same ramp.
+ */
+const AWAY_FADE = 0.3;
 
 const STORAGE_KEY = 'forge:sound';
 
@@ -80,8 +96,6 @@ export class AudioEngine {
    * next gesture, so between those two moments this is true and `ctx` is null.
    */
   private wanted = false;
-  /** Set once the tab is hidden, so returning to it knows to resume. */
-  private suspendedByVisibility = false;
   private disposed = false;
 
   private readonly voices = new Set<Voice>();
@@ -110,7 +124,7 @@ export class AudioEngine {
   }
 
   private readonly onGesture = (): void => this.kick();
-  private readonly onVisibility = (): void => this.syncVisibility();
+  private readonly onAttention = (): void => this.syncAttention();
 
   constructor() {
     try {
@@ -123,7 +137,12 @@ export class AudioEngine {
     // canvas or with the click that is also a navigation.
     window.addEventListener('pointerdown', this.onGesture, { capture: true, passive: true });
     window.addEventListener('keydown', this.onGesture, { capture: true, passive: true });
-    document.addEventListener('visibilitychange', this.onVisibility);
+    // Hidden and unfocused are different states and both mean silence. A tab
+    // on a second monitor with the reader working in another app is visible by
+    // every measure the visibility API has, and nobody wants it humming.
+    document.addEventListener('visibilitychange', this.onAttention);
+    window.addEventListener('blur', this.onAttention);
+    window.addEventListener('focus', this.onAttention);
   }
 
   /** What the toggle should show. */
@@ -195,13 +214,53 @@ export class AudioEngine {
    * every time after — Safari re-suspends on its own whenever the tab loses
    * focus, so "already started" is never a state worth trusting.
    */
+  /**
+   * Is anyone there? Hidden or unfocused both mean no.
+   *
+   * Deliberately not consulted by kick(): a pointerdown or a keystroke IS
+   * attention, whatever hasFocus() happens to report at that instant, and in
+   * some embedded contexts it reports false throughout. Trusting it there
+   * would mean the toggle silently does nothing.
+   */
+  private get attended(): boolean {
+    return !document.hidden && document.hasFocus();
+  }
+
   private kick(): void {
     if (this.disposed || !this.wanted || document.hidden) return;
     if (!this.ctx) this.build();
+    this.openMaster(MASTER_RAMP);
+  }
+
+  /**
+   * Bring the master up, resuming the clock first if it is parked.
+   *
+   * The order is the whole of it. AudioContext.resume() is asynchronous and
+   * currentTime does not advance while a context is suspended, so a ramp
+   * scheduled before the resume lands is scheduled entirely into the past: by
+   * the time audio is running again the ramp has already "finished", and the
+   * gain arrives at full in a single step. That is a click, and it is the one
+   * click a reader is guaranteed to hear, because it is exactly the moment they
+   * turn sound on or come back to the tab. Wait for the clock, then write to it.
+   */
+  private openMaster(seconds: number): void {
     const ctx = this.ctx;
-    if (!ctx) return;
-    if (ctx.state !== 'running') void ctx.resume();
-    if (this.master) rampTo(this.master.gain, MASTER_GAIN, ctx.currentTime, MASTER_RAMP);
+    if (!ctx || !this.master) return;
+    if (ctx.state === 'running') {
+      rampTo(this.master.gain, MASTER_GAIN, ctx.currentTime, seconds);
+      return;
+    }
+    void ctx.resume().then(
+      () => {
+        // Re-check: a reader can switch away, or turn sound off, inside the
+        // handful of milliseconds a resume takes. Tested against `hidden`
+        // rather than `attended` for the same reason kick() is — this runs on
+        // the gesture path too, and hasFocus() lies in embedded contexts.
+        if (this.ctx !== ctx || !this.master || !this.wanted || document.hidden) return;
+        rampTo(this.master.gain, MASTER_GAIN, ctx.currentTime, seconds);
+      },
+      () => { /* no activation yet: the next gesture tries again */ },
+    );
   }
 
   private build(): void {
@@ -244,20 +303,42 @@ export class AudioEngine {
   // -- lifecycle -------------------------------------------------------------
 
   /**
-   * A tab that hums in the background is a bug. Suspending stops the audio
-   * thread outright, which is stronger and cheaper than muting.
+   * Follow the reader's attention: fade out when they leave, fade back when
+   * they return, and park the context once the fade has actually landed.
+   *
+   * The order matters in both directions. Suspending mid-fade freezes the gain
+   * wherever it got to, and it is still sitting there, audible, the instant
+   * anything resumes — so the suspend waits out the ramp, and checks on the way
+   * through that the reader has not come back in the meantime. Coming back,
+   * the resume happens first and the ramp second, because a ramp scheduled on a
+   * parked clock never runs.
+   *
+   * Derived from state rather than remembered, so any number of blur, focus and
+   * visibility events in any order settle to the same place.
    */
-  private syncVisibility(): void {
-    if (!this.ctx) return;
-    if (document.hidden) {
-      if (this.ctx.state === 'running') {
-        this.suspendedByVisibility = true;
-        void this.ctx.suspend();
-      }
-    } else if (this.suspendedByVisibility) {
-      this.suspendedByVisibility = false;
-      if (this.wanted) void this.ctx.resume();
+  private syncAttention(): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return;
+
+    if (this.wanted && this.attended) {
+      this.openMaster(AWAY_FADE);
+      return;
     }
+
+    if (ctx.state === 'running') rampTo(master.gain, 0, ctx.currentTime, AWAY_FADE);
+    setSoon(() => {
+      if (this.wanted && this.attended) return;
+      const parked = this.ctx;
+      if (!parked || !this.master) return;
+      // Land at silence before parking, whatever the fade actually did. A
+      // context suspended at a non-zero gain resumes at that gain — the step
+      // here is inaudible because it happens at the end of a fade to zero, and
+      // it is the one thing standing between a lost race and a bang on return.
+      this.master.gain.cancelScheduledValues(parked.currentTime);
+      this.master.gain.setValueAtTime(0, parked.currentTime);
+      void parked.suspend();
+    }, AWAY_FADE * 1.6);
   }
 
   addVoice(voice: Voice): void {
@@ -289,7 +370,9 @@ export class AudioEngine {
     this.stopAll();
     window.removeEventListener('pointerdown', this.onGesture, { capture: true });
     window.removeEventListener('keydown', this.onGesture, { capture: true });
-    document.removeEventListener('visibilitychange', this.onVisibility);
+    document.removeEventListener('visibilitychange', this.onAttention);
+    window.removeEventListener('blur', this.onAttention);
+    window.removeEventListener('focus', this.onAttention);
     // Tear the output stage down explicitly before closing. close() would
     // collect it anyway, but doing it by hand keeps this file honest about the
     // rule it asks every voice to keep.
