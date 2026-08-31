@@ -11,9 +11,12 @@ import { createContext, maxSamples, resizeToDisplay, WebGLNotSupportedError, typ
 import { registerChunks } from '../gl/chunks.ts';
 import { Framebuffer } from '../gl/framebuffer.ts';
 import { PrintPass, DEFAULT_PRINT } from '../gl/post.ts';
+import { AudioEngine } from '../audio/engine.ts';
+import { switchCue } from '../audio/ui.ts';
 import { Gallery } from './gallery.ts';
 import { ControlPanel } from '../ui/controls.ts';
 import { LabelLayer } from '../ui/labels.ts';
+import { icon } from '../ui/icons.ts';
 import {
   applyPaletteToCss, DEFAULT_PALETTE, InkSet, PALETTES,
   type Palette,
@@ -52,6 +55,12 @@ export class Shell {
   private camera!: OrbitCamera;
   private labels!: LabelLayer;
   private loop!: Loop;
+  /**
+   * The site's voice. Constructed here, but it constructs nothing itself: no
+   * AudioContext exists until a reader turns sound on, and turning it on is a
+   * gesture, which is the only moment a browser would allow one anyway.
+   */
+  private readonly audio = new AudioEngine();
 
   /**
    * The chapter wipe. Arriving at a chapter pulls the image across the frame
@@ -99,6 +108,8 @@ export class Shell {
   private hud!: HTMLElement;
   private mastheadEl!: HTMLElement;
   private navEl!: HTMLElement;
+  /** The one global control, re-parented into whatever chrome is on screen. */
+  private soundToggle!: HTMLButtonElement;
   private leftRail!: HTMLElement;
   private rightRail!: HTMLElement;
 
@@ -176,10 +187,49 @@ export class Shell {
     this.rightRail.className = 'rail';
     bottomRight.append(this.rightRail);
 
+    this.soundToggle = this.buildSoundToggle();
+
     this.hud.append(topLeft, topRight, bottomLeft, bottomRight);
     this.root.append(this.labels.element, this.hud);
 
     this.buildNav();
+  }
+
+  /**
+   * Sound on or off, and that is the entire mixer.
+   *
+   * It rides in the masthead beside the way back, because it is the same kind
+   * of thing: chrome that belongs to the site rather than to a chapter. It is
+   * a Feather mark, like the back arrow and the reroll beside it — one grid,
+   * one stroke weight, one hand across the whole masthead.
+   *
+   * Default off, and off is the state a stranger arrives in. A portfolio that
+   * makes noise at someone unprompted is a portfolio they close.
+   */
+  private buildSoundToggle(): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'masthead-sound';
+
+    const sync = (): void => {
+      const on = this.audio.enabled;
+      button.innerHTML = icon(on ? 'volume' : 'volume-off');
+      button.classList.toggle('is-muted', !on);
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+      button.setAttribute('aria-label', on ? 'Turn sound off' : 'Turn sound on');
+      button.title = on ? 'Sound on' : 'Sound off';
+    };
+
+    button.addEventListener('click', () => {
+      // The click is itself the gesture the engine has been waiting for, so
+      // the confirmation can be scheduled immediately around the toggle.
+      const on = this.audio.toggle();
+      switchCue(this.audio, on);
+      sync();
+    });
+
+    sync();
+    return button;
   }
 
   private buildNav(): void {
@@ -213,12 +263,13 @@ export class Shell {
     // browser's back triggers through hashchange.
     this.mastheadEl.innerHTML = `
       <a class="masthead-back" href="#/" title="Back to the index"
-         aria-label="Back to the index"><span></span></a>
+         aria-label="Back to the index">${icon('arrow-left')}</a>
       <span class="masthead-index">${String(def.index).padStart(2, '0')}</span>
       <div>
         <h1 class="masthead-title">${def.title}</h1>
         <p class="masthead-subtitle">${def.subtitle}</p>
       </div>`;
+    this.mastheadEl.querySelector('.masthead-back')!.after(this.soundToggle);
 
     // Seeded generators wear their seed; the reroll button prints a new one.
     if (def.seeded && seed !== undefined) {
@@ -229,7 +280,7 @@ export class Shell {
       reroll.type = 'button';
       reroll.className = 'seed-chip-reroll';
       reroll.title = 'New seed';
-      reroll.textContent = '↻';
+      reroll.innerHTML = icon('refresh');
       reroll.addEventListener('click', () => {
         location.hash = `#/${def.id}?seed=${encodeURIComponent(randomSeedString())}`;
       });
@@ -370,7 +421,13 @@ export class Shell {
     this.disposeChapter();
     this.clearNotice();
     this.chapterDef = null;
-    this.hud.style.display = 'none';
+    // The index keeps the chrome, but only the part of it that belongs to the
+    // whole site: the sound toggle, in the same corner it occupies inside a
+    // chapter, so it never moves out from under anyone.
+    this.mastheadEl.replaceChildren(this.soundToggle);
+    this.navEl.style.display = 'none';
+    this.leftRail.replaceChildren();
+    this.rightRail.replaceChildren();
     this.labels.element.style.display = 'none';
     if (!this.gallery) {
       this.gallery = new Gallery();
@@ -381,7 +438,7 @@ export class Shell {
 
   private hideGallery(): void {
     this.gallery?.hide();
-    this.hud.style.display = '';
+    this.navEl.style.display = '';
     this.labels.element.style.display = '';
   }
 
@@ -584,6 +641,7 @@ export class Shell {
     this.camera.update(dt, aspect);
 
     this.advanceTransition();
+    this.audio.update(dt);
 
     if (this.reveal < 1) {
       this.reveal = Math.min(1, (performance.now() - this.revealStart) / (WIPE_SECONDS * 1000));

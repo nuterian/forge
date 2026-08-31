@@ -66,6 +66,9 @@ canvas#stage {
 .hud {
   position: absolute;
   inset: 0;
+  /* Above the proof sheet (z-index 5): the sound toggle is site chrome, and it
+     stays reachable on the index as well as inside a chapter. */
+  z-index: 6;
   pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
@@ -119,13 +122,12 @@ canvas#stage {
   max-width: 470px;
 }
 
-/* The way back. An arrow cut from two rules, in the same hand as the label
-   leaders — no glyph, because the mono face's arrow sits badly on the baseline
-   at this size. It is an anchor rather than a button so it stays a real link:
-   the departure it plays is the same one the browser's own back button
-   triggers, since both arrive through hashchange. */
+/* The way back. An anchor rather than a button so it stays a real link: the
+   departure it plays is the same one the browser's own back button triggers,
+   since both arrive through hashchange. */
 .masthead-back {
-  position: relative;
+  display: grid;
+  place-items: center;
   width: 26px;
   height: 26px;
   flex-shrink: 0;
@@ -136,38 +138,50 @@ canvas#stage {
   transition: color 140ms ease, border-color 140ms ease, transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.masthead-back span,
-.masthead-back span::before,
-.masthead-back span::after {
-  content: '';
-  position: absolute;
-  background: currentColor;
-}
-
-/* The shaft. */
-.masthead-back span {
-  left: 7px;
-  top: 12px;
-  width: 11px;
-  height: 1px;
-}
-
-/* And the two barbs of the head. */
-.masthead-back span::before,
-.masthead-back span::after {
-  left: 0;
-  width: 5px;
-  height: 1px;
-}
-
-.masthead-back span::before { top: -2px; transform: rotate(-45deg); transform-origin: left center; }
-.masthead-back span::after { top: 2px; transform: rotate(45deg); transform-origin: left center; }
-
 .masthead-back:hover,
 .masthead-back:focus-visible {
   color: var(--ink);
   border-color: var(--ink);
   transform: translateX(-3px);
+}
+
+/* Sound on or off — the site's one global control, and the entire mixer. It
+   sits beside the way back because it is the same kind of thing: chrome that
+   belongs to the site rather than to any one chapter. The two states differ by
+   a shape and not only by a colour, so the mark still reads with the ink
+   turned down. */
+.masthead-sound {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--line-faint);
+  color: var(--line);
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.masthead-sound.is-muted { color: var(--line-dim); }
+
+.masthead-sound:hover,
+.masthead-sound:focus-visible {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+/* --- Icons ---------------------------------------------------------------- */
+
+/* Feather marks, inlined by ui/icons.ts. Set at a size where the 1.5-unit
+   stroke of a 24-unit grid prints at the same weight as the hairline rules
+   around it, and always in currentColor so they reprint with the inks. */
+.icon {
+  display: block;
+  width: 15px;
+  height: 15px;
 }
 
 .masthead-index {
@@ -236,15 +250,20 @@ canvas#stage {
 }
 
 .seed-chip-reroll {
+  display: grid;
+  place-items: center;
   background: none;
   border: 0;
   padding: 0 1px;
   color: var(--ink);
-  font-size: 13px;
-  line-height: 1;
   cursor: pointer;
   transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 120ms ease;
   opacity: 0.75;
+}
+
+.seed-chip-reroll .icon {
+  width: 12px;
+  height: 12px;
 }
 
 .seed-chip-reroll:hover,
