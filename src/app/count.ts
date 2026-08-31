@@ -17,6 +17,8 @@
  * frame budget; counting does not get to spend any of it.
  */
 
+import { routeId } from './title.ts';
+
 const ENDPOINT = 'https://stats.jugalm.com/api/send';
 
 /**
@@ -51,23 +53,26 @@ const optedOut = (): boolean =>
  * A seed is a state of a page, not a page.
  */
 function route(): string {
-  const path = location.hash.replace(/^#\/?/, '').split('?')[0] ?? '';
-  return `${location.pathname}#/${path}`;
+  return `${location.pathname}#/${routeId()}`;
 }
 
-/** The last route counted, so a reroll is not a second view of the same page. */
+/**
+ * The last route counted, so a reroll is not a second view of the same page.
+ *
+ * The chapters are hash routes, so there is no navigation for a tracker to
+ * notice on its own — Umami's own script watches pushState and would record
+ * exactly one view per session here however much of the site somebody read.
+ * main.ts calls count() on every hashchange instead.
+ */
 let last = '';
 
-export function count(): void {
+/** One beacon. Everything reported goes through here, gated once. */
+function send(payload: Record<string, unknown>): void {
   // Only the real site, and only real people: a local build, a preview server
   // or an automated run is not a visit.
   if (!WEBSITE) return;
   if (location.hostname !== 'jugalm.com' || navigator.webdriver || optedOut()) return;
   if (!navigator.sendBeacon) return;
-
-  const url = route();
-  if (url === last) return;
-  last = url;
 
   try {
     const body = JSON.stringify({
@@ -75,11 +80,12 @@ export function count(): void {
       payload: {
         website: WEBSITE,
         hostname: location.hostname,
-        url,
+        url: route(),
         title: document.title,
         referrer: document.referrer,
         screen: `${screen.width}x${screen.height}`,
         language: navigator.language,
+        ...payload,
       },
     });
     // text/plain, and that is load-bearing. sendBeacon always sends with
@@ -97,14 +103,23 @@ export function count(): void {
   }
 }
 
+/** One page view, unless this route was the last one counted. */
+export function count(): void {
+  const url = route();
+  if (url === last) return;
+  last = url;
+  send({});
+}
+
 /**
- * Count this view, and every route change after it.
+ * One named thing that happened.
  *
- * The chapters are hash routes, so there is no navigation for a tracker to
- * notice — Umami's own script watches pushState and would see exactly one view
- * per session here, no matter how much of the site somebody read.
+ * `data` is for low-cardinality facts only — which chapter, which ink. Never a
+ * seed: a seed is unique per press, and a property with unbounded values fills
+ * the report with rows of one and answers nothing. The question worth asking is
+ * "do people press reroll at all", not "which of nine thousand skies did they
+ * see".
  */
-export function startCounting(): void {
-  count();
-  window.addEventListener('hashchange', count);
+export function event(name: string, data?: Record<string, string>): void {
+  send(data ? { name, data } : { name });
 }

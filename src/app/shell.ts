@@ -19,6 +19,7 @@ import {
   applyPaletteToCss, DEFAULT_PALETTE, InkSet, PALETTES,
   type Palette,
 } from '../ui/palette.ts';
+import { event } from './count.ts';
 import { CHAPTERS, findChapter } from '../chapters/registry.ts';
 import type { ChapterDef, ChapterInstance } from './chapter.ts';
 
@@ -233,6 +234,9 @@ export class Shell {
       reroll.title = 'New seed';
       reroll.innerHTML = icon('refresh');
       reroll.addEventListener('click', () => {
+        // Which chapter, never which seed. The question worth answering is
+        // whether anyone presses this at all.
+        event('reroll', { chapter: def.id });
         location.hash = `#/${def.id}?seed=${encodeURIComponent(randomSeedString())}`;
       });
       chip.append(reroll);
@@ -274,6 +278,9 @@ export class Shell {
       onChange: (id) => {
         const next = PALETTES.find((p) => p.id === id);
         if (next) {
+          // Five values, one of which is the default: enough to learn whether
+          // anyone ever changes the inks, and which one they settle on.
+          event('ink', { ink: next.id });
           this.palette = next;
           this.paletteChosen = true;
           this.applyPalette(next);
