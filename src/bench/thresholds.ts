@@ -22,6 +22,9 @@
  *   gpu.body 0.054 · gpu.belt 0.118 · gpu.glow 0.762
  *   cpu.raster.clear 0.325 · lines 1.83 · dots 0.80 · triangles 1.03
  *   cpu.chart.frame 1.23 · cpu.kepler 0.64 · cpu.labels 0.009
+ *
+ * Re-budgeted once since: cpu.chart.frame, when the Star Chart gained its
+ * instrument plate. See the note on that entry below.
  */
 
 export const THRESHOLDS: Record<string, number> = {
@@ -39,7 +42,25 @@ export const THRESHOLDS: Record<string, number> = {
   'cpu.raster.lines': 3.7,
   'cpu.raster.dots': 1.6,
   'cpu.raster.triangles': 2.1,
-  'cpu.chart.frame': 2.5,
+  // Re-budgeted from 2.5 when the Star Chart gained its instrument furniture:
+  // the deep-sky stipple, the lettered cartouche, the compass rose and the
+  // rim's degree ticks all landed inside this bench's workload, and they are
+  // real work, not a regression in existing code.
+  //
+  // The figure is DERIVED rather than directly measured, which is worth being
+  // plain about. The environment this change was made in could not produce a
+  // trustworthy CPU reading: every GPU row sat exactly on its calibration best
+  // (gpu.sky 0.089 against a recorded 0.089) while every CPU row read three to
+  // four times high — the efficiency-core parking the notes above describe.
+  // So the ratio was taken where it could be taken cleanly, by running the
+  // same rasterizer outside the browser: the identical frame goes 0.61ms to
+  // 0.97ms with the furniture added, stable across runs, a factor of 1.57.
+  // Applied to the recorded 1.23ms calibration best that gives ~1.93ms, and
+  // the file's own rule — roughly twice the best figure — gives 3.9.
+  //
+  // This wants confirming with one clean run on the calibration machine; if
+  // that comes in materially under 1.93ms, tighten this back down.
+  'cpu.chart.frame': 3.9,
   'cpu.kepler': 1.3,
   'cpu.labels': 0.025,
 };

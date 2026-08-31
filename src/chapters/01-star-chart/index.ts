@@ -10,11 +10,13 @@
  */
 
 import type { ChapterContext, ChapterInstance } from '../../app/chapter.ts';
-import { DEG, clamp, vec3, type Vec3 } from '../../core/math.ts';
+import { DEG, TAU, clamp, vec3, type Vec3 } from '../../core/math.ts';
 import { Raster, type RGB } from '../../core/raster.ts';
+import { Rng } from '../../core/rng.ts';
 import { RasterBlitter } from '../../gl/blit.ts';
 import type { LabelSpec } from '../../ui/labels.ts';
 import { generateSky, type SkyModel } from './sky.ts';
+import { generateDeepSky } from './deepsky.ts';
 
 /** The celestial sphere's world radius — labels live at this distance. */
 const SPHERE_RADIUS = 60;
@@ -25,9 +27,25 @@ interface Settings {
   antialias: boolean;
   figures: boolean;
   graticule: boolean;
+  furniture: boolean;
   names: boolean;
   draw: boolean;
 }
+
+/**
+ * Titles in the register the old atlases used. Curated rather than assembled
+ * from syllables: half a dozen real ones read better than a thousand invented
+ * ones, and the plate only ever shows you a single title.
+ */
+const ATLAS_TITLES = [
+  'URANOGRAPHIA',
+  'SPECULUM COELI',
+  'FIRMAMENTUM',
+  'PLANISPHAERIUM',
+  'ATLAS COELESTIS',
+  'COELUM STELLATUM',
+  'TABULA ASTRORUM',
+];
 
 export function create(ctx: ChapterContext): ChapterInstance {
   const { gl, camera, inks, labels, controls, canvas, print } = ctx;
@@ -50,11 +68,20 @@ export function create(ctx: ChapterContext): ChapterInstance {
     antialias: true,
     figures: true,
     graticule: true,
+    furniture: true,
     names: true,
     draw: false,
   };
 
   const model: SkyModel = generateSky(ctx.seed);
+  const deepSky = generateDeepSky(ctx.seed);
+
+  // The plate's own title block. Its own stream again, so choosing a title
+  // cannot disturb a single star.
+  const titleRng = new Rng(`title:${ctx.seed}`);
+  const chartTitle = titleRng.pick(ATLAS_TITLES);
+  const seedLine = `SEED ${ctx.seed}`;
+  const epochLine = `EPOCH ${new Date().getFullYear()}.0 \u00b7 THE FORGE PRESS`;
 
   const raster = new Raster(4, 4);
   const blitter = new RasterBlitter(gl);
@@ -197,6 +224,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
   controls.addAll([
     { kind: 'toggle', label: 'Constellation figures', value: settings.figures, onChange: (v) => (settings.figures = v) },
     { kind: 'toggle', label: 'Graticule', value: settings.graticule, onChange: (v) => (settings.graticule = v) },
+    { kind: 'toggle', label: 'Instrument plate', value: settings.furniture, onChange: (v) => (settings.furniture = v) },
     { kind: 'toggle', label: 'Names', value: settings.names, onChange: (v) => (settings.names = v) },
     {
       kind: 'toggle', label: 'Antialiasing', value: settings.antialias,
@@ -232,6 +260,15 @@ export function create(ctx: ChapterContext): ChapterInstance {
         color: inks.hex(constellation.inkIndex),
         position: vec3.scale(vec3.create(), constellation.centroid, SPHERE_RADIUS),
         priority: 5,
+      });
+    }
+    for (const object of deepSky) {
+      specs.push({
+        id: `d-${object.name}`,
+        text: object.name,
+        color: inks.hex(object.inkIndex),
+        position: vec3.scale(vec3.create(), object.dir, SPHERE_RADIUS),
+        priority: 3,
       });
     }
     model.stars.forEach((star, i) => {
@@ -294,6 +331,205 @@ export function create(ctx: ChapterContext): ChapterInstance {
     }
   };
 
+  // -- the instrument plate -------------------------------------------------
+  // Every piece of furniture below is drawn by the chapter's own rasterizer:
+  // the lettering comes out of raster.text()'s stroke font, the compass points
+  // are barycentric triangle fills, the rules and ticks are Wu lines. Drawing
+  // your own chrome with the thing the chapter is about is the point.
+
+  /**
+   * Raster pixels per CSS pixel. Everything lettered has to be sized in this,
+   * not in raster pixels: the raster is capped at 1500 across, so on a laptop
+   * one raster pixel is about one CSS pixel, and on a phone it is two — type
+   * measured in raster pixels would come out half-size on the phone.
+   */
+  let pxPerCss = 1;
+
+  const dsDir = vec3.create();
+
+  const drawDeepSky = (): void => {
+    const aa = settings.antialias;
+    const zoom = Math.sqrt(clamp((110 * DEG) / camera.fov, 0.3, 2.4));
+    for (const object of deepSky) {
+      const color = ink(object.inkIndex);
+      const points = object.points;
+      for (let i = 0; i < object.radii.length; i++) {
+        vec3.set(dsDir, points[i * 3]!, points[i * 3 + 1]!, points[i * 3 + 2]!);
+        projectDir(dsDir, pa);
+        if (!pa.visible) continue;
+        raster.dot(pa.x, pa.y, object.radii[i]! * zoom, color, object.alphas[i]!, aa);
+      }
+    }
+  };
+
+  /** A filled rectangle, out of the two triangles it is made of. */
+  const fillRect = (x0: number, y0: number, x1: number, y1: number, color: RGB, alpha: number): void => {
+    raster.triangle(x0, y0, x1, y0, x1, y1, color, alpha, false);
+    raster.triangle(x0, y0, x1, y1, x0, y1, color, alpha, false);
+  };
+
+  const strokeRect = (x0: number, y0: number, x1: number, y1: number, color: RGB, alpha: number): void => {
+    const aa = settings.antialias;
+    raster.line(x0, y0, x1, y0, color, { alpha, aa });
+    raster.line(x1, y0, x1, y1, color, { alpha, aa });
+    raster.line(x1, y1, x0, y1, color, { alpha, aa });
+    raster.line(x0, y1, x0, y0, color, { alpha, aa });
+  };
+
+  // Where the furniture ended up this plate, so the star pass can print
+  // *around* it. A cartouche with the sky showing through its title is a
+  // cartouche nobody can read.
+  let cartX0 = 0, cartY0 = 0, cartX1 = -1, cartY1 = -1;
+  let roseX = 0, roseY = 0, roseR = -1;
+
+  const drawCartouche = (): void => {
+    const s = pxPerCss;
+    const pad = 10 * s;
+    const titleSize = 9.5 * s;
+    const lineSize = 6.4 * s;
+    const gap = 7 * s;
+
+    const width = Math.max(
+      raster.measureText(chartTitle, titleSize),
+      raster.measureText(seedLine, lineSize),
+      raster.measureText(epochLine, lineSize),
+    ) + pad * 2;
+    const height = pad * 2 + titleSize + gap + lineSize + gap * 0.7 + lineSize;
+
+    // Both rails of the HUD sit in the bottom corners on a wide screen, and
+    // the panel takes the bottom-left on a narrow one. The clear band is the
+    // bottom centre on a desktop and the top centre on a phone, so the title
+    // block goes wherever the chrome is not.
+    const x0 = Math.round((raster.width - width) / 2);
+    const y0 = Math.round(
+      cssWidth < 900 ? 96 * s : raster.height - height - 30 * s,
+    );
+    const x1 = x0 + width;
+    const y1 = y0 + height;
+    cartX0 = x0; cartY0 = y0; cartX1 = x1; cartY1 = y1;
+
+    // Printed *onto* the chart: the paper fill is what makes it a block of
+    // type rather than a box of graticule.
+    fillRect(x0, y0, x1, y1, paperRgb, 0.93);
+    strokeRect(x0, y0, x1, y1, lineRgb, 0.5);
+    const inset = 3 * s;
+    strokeRect(x0 + inset, y0 + inset, x1 - inset, y1 - inset, lineRgb, 0.22);
+
+    // Corner cuts, the way an engraved title block is finished.
+    const cut = 7 * s;
+    const aa = settings.antialias;
+    raster.line(x0, y0 + cut, x0 + cut, y0, lineRgb, { alpha: 0.5, aa });
+    raster.line(x1 - cut, y0, x1, y0 + cut, lineRgb, { alpha: 0.5, aa });
+    raster.line(x0, y1 - cut, x0 + cut, y1, lineRgb, { alpha: 0.5, aa });
+    raster.line(x1 - cut, y1, x1, y1 - cut, lineRgb, { alpha: 0.5, aa });
+
+    const cx = (x0 + x1) / 2;
+    let y = y0 + pad;
+    raster.textCentered(cx, y, chartTitle, titleSize, lineRgb, { alpha: 0.92, aa });
+    y += titleSize + gap;
+    raster.textCentered(cx, y, seedLine, lineSize, ink(1), { alpha: 0.85, aa });
+    y += lineSize + gap * 0.7;
+    raster.textCentered(cx, y, epochLine, lineSize, lineRgb, { alpha: 0.45, aa });
+  };
+
+  /**
+   * An eight-point rose. Its north is the *real* north: the celestial pole
+   * projected onto the chart, measured from the rose's own position — so on a
+   * planisphere, where north is a different direction in every part of the
+   * frame, the rose still tells the truth.
+   */
+  const poleDir = vec3.create(0, 1, 0);
+  const drawCompassRose = (): void => {
+    const s = pxPerCss;
+    const aa = settings.antialias;
+    const R = Math.min(50 * s, Math.min(raster.width, raster.height) * 0.11);
+    const cx = raster.width - R - 26 * s;
+    const cy = 200 * s + R;
+    roseX = cx; roseY = cy; roseR = R * 1.06;
+
+    let north = -Math.PI / 2;
+    projectDir(poleDir, pb);
+    const dx = pb.x - cx;
+    const dy = pb.y - cy;
+    if (pb.visible && Math.hypot(dx, dy) > R * 0.5) north = Math.atan2(dy, dx);
+
+    raster.dot(cx, cy, R * 1.06, paperRgb, 0.9, aa);
+
+    // Fine ticks all the way round, longer every eighth.
+    for (let i = 0; i < 48; i++) {
+      const a = north + (i / 48) * TAU;
+      const inner = R * (i % 6 === 0 ? 0.82 : 0.9);
+      raster.line(
+        cx + Math.cos(a) * inner, cy + Math.sin(a) * inner,
+        cx + Math.cos(a) * R, cy + Math.sin(a) * R,
+        lineRgb, { alpha: i % 6 === 0 ? 0.55 : 0.3, aa },
+      );
+    }
+    raster.ring(cx, cy, R * 0.78, lineRgb, 0.35, aa);
+    raster.ring(cx, cy, R * 0.2, lineRgb, 0.45, aa);
+
+    // Eight points, each a pair of barycentric triangles — one half in the
+    // light ink and one in shadow, which is what makes a rose read as raised.
+    for (let k = 0; k < 8; k++) {
+      const a = north + (k / 8) * TAU;
+      const long = k % 2 === 0;
+      const reach = R * (long ? 0.76 : 0.46);
+      const halfWidth = R * (long ? 0.11 : 0.08);
+      const tipX = cx + Math.cos(a) * reach;
+      const tipY = cy + Math.sin(a) * reach;
+      const px = -Math.sin(a) * halfWidth;
+      const py = Math.cos(a) * halfWidth;
+      const color = long ? ink(1) : lineRgb;
+      raster.triangle(cx, cy, tipX, tipY, cx + px, cy + py, color, 0.75, aa);
+      raster.triangle(cx, cy, tipX, tipY, cx - px, cy - py, color, 0.34, aa);
+    }
+
+    // Only N is lettered: four letters at this size is a smudge.
+    const letter = 7 * s;
+    raster.textCentered(
+      cx + Math.cos(north) * R * 1.3, cy + Math.sin(north) * R * 1.3 - letter / 2,
+      'N', letter, ink(1), { alpha: 0.9, aa },
+    );
+  };
+
+  /**
+   * Degree ticks around the planisphere's rim — but only once the whole sphere
+   * is on the page. Zoomed in, the "rim" is a circle far outside the frame and
+   * the ticks are meaningless.
+   */
+  const drawLimbTicks = (): void => {
+    const shortSide = Math.min(raster.width, raster.height);
+    const R = (Math.PI / (camera.fov / 2)) * CHART_EXTENT * shortSide;
+    if (R > shortSide * 0.47) return;
+
+    const s = pxPerCss;
+    const aa = settings.antialias;
+    const cx = raster.width / 2;
+    const cy = raster.height / 2;
+
+    raster.ring(cx, cy, R, lineRgb, 0.3, aa);
+
+    for (let deg = 0; deg < 360; deg += 5) {
+      const a = (deg * Math.PI) / 180;
+      const long = deg % 45 === 0;
+      const mid = deg % 15 === 0;
+      const len = R * (long ? 0.055 : mid ? 0.032 : 0.018);
+      raster.line(
+        cx + Math.cos(a) * R, cy + Math.sin(a) * R,
+        cx + Math.cos(a) * (R - len), cy + Math.sin(a) * (R - len),
+        lineRgb, { alpha: long ? 0.5 : mid ? 0.34 : 0.2, aa },
+      );
+      if (long) {
+        const size = 6 * s;
+        const rr = R - len - size * 1.5;
+        raster.textCentered(
+          cx + Math.cos(a) * rr, cy + Math.sin(a) * rr - size / 2,
+          `${String(deg).padStart(3, '0')}\u00b0`, size, lineRgb, { alpha: 0.4, aa },
+        );
+      }
+    }
+  };
+
   let twinkleClock = 0;
 
   const drawStars = (): void => {
@@ -302,6 +538,13 @@ export function create(ctx: ChapterContext): ChapterInstance {
       const star = model.stars[i]!;
       projectDir(star.dir, pa);
       if (!pa.visible) continue;
+      // The furniture is printed onto the plate, so the sky stops at its edge.
+      if (pa.x >= cartX0 && pa.x <= cartX1 && pa.y >= cartY0 && pa.y <= cartY1) continue;
+      if (roseR > 0) {
+        const rx = pa.x - roseX;
+        const ry = pa.y - roseY;
+        if (rx * rx + ry * ry <= roseR * roseR) continue;
+      }
 
       const color = star.tint >= 0 ? ink(star.tint) : lineRgb;
       // Radius follows magnitude; the zoom widens stars a little so the sky
@@ -383,6 +626,9 @@ export function create(ctx: ChapterContext): ChapterInstance {
 
   let width = ctx.size.width;
   let height = ctx.size.height;
+  // The canvas's CSS width, for sizing type. Read on resize only — a layout
+  // measurement has no place in a render loop.
+  let cssWidth = canvas.clientWidth || width;
 
   // The plate: everything that only changes with the *view* — the cleared
   // paper and the graticule, ~1300 projected line segments — baked to a
@@ -396,6 +642,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
   let plateW = -1;
   let plateH = -1;
   let plateGraticule = false;
+  let plateFurniture = false;
   let plateAa = false;
   let plate: Uint32Array | null = null;
 
@@ -418,6 +665,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
         plateW !== raster.width ||
         plateH !== raster.height ||
         plateGraticule !== settings.graticule ||
+        plateFurniture !== settings.furniture ||
         plateAa !== settings.antialias;
       if (!dirty) {
         for (let i = 0; i < 16; i++) {
@@ -429,14 +677,27 @@ export function create(ctx: ChapterContext): ChapterInstance {
       }
 
       if (dirty) {
+        pxPerCss = raster.width / Math.max(1, cssWidth);
         raster.clear(paperRgb);
         if (settings.graticule) drawGraticule();
+        // Deep-sky objects are sky, not chrome: they are there whether or not
+        // the instrument furniture is.
+        drawDeepSky();
+        if (settings.furniture) {
+          drawLimbTicks();
+          drawCompassRose();
+          drawCartouche();
+        } else {
+          cartX1 = -1;
+          roseR = -1;
+        }
         plate = raster.snapshot(plate ?? undefined);
         plateView.set(v);
         plateFov = camera.fov;
         plateW = raster.width;
         plateH = raster.height;
         plateGraticule = settings.graticule;
+        plateFurniture = settings.furniture;
         plateAa = settings.antialias;
       } else {
         raster.restore(plate!);
@@ -453,6 +714,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
     resize(w, h) {
       width = w;
       height = h;
+      cssWidth = canvas.clientWidth || w;
     },
 
     dispose() {

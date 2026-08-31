@@ -24,6 +24,7 @@ import { SkyPass } from '../scene/sky.ts';
 import { InkSet, PALETTES } from '../ui/palette.ts';
 import { LabelLayer, type LabelSpec } from '../ui/labels.ts';
 import { generateSky } from '../chapters/01-star-chart/sky.ts';
+import { generateDeepSky } from '../chapters/01-star-chart/deepsky.ts';
 import {
   applyPlanetUniforms, bakePlanetFields, createRampTexture, generatePlanet,
 } from '../chapters/03-worldsmith/planet.ts';
@@ -285,7 +286,115 @@ export async function runAllBenches(
   const pa = { x: 0, y: 0, visible: false };
   const pb = { x: 0, y: 0, visible: false };
 
-  /** The full chart workload: clear + graticule + stars + figures, ch1's mix. */
+  const deepSky = generateDeepSky('bench');
+  const deepDir = vec3.create();
+
+  /**
+   * The chart's instrument furniture, drawn the way ch1 draws it: the deep-sky
+   * stipple, the lettered cartouche, the compass rose's triangle points, and
+   * the degree ticks around the planisphere's rim. The rim ticks only appear
+   * on the real plate when the whole sphere is in frame; they are always drawn
+   * here because this bench is a bound on the worst frame, not the usual one.
+   */
+  const chartFurniture = (): void => {
+    for (const object of deepSky) {
+      for (let i = 0; i < object.radii.length; i++) {
+        vec3.set(deepDir, object.points[i * 3]!, object.points[i * 3 + 1]!, object.points[i * 3 + 2]!);
+        chartProject(deepDir, pa);
+        if (!pa.visible) continue;
+        raster.dot(pa.x, pa.y, object.radii[i]!, line, object.alphas[i]!, true);
+      }
+    }
+
+    // The cartouche: paper fill, double rule, three lines of the stroke font.
+    const title = 'TABULA ASTRORUM';
+    const seedLine = 'SEED BENCH-0000';
+    const epochLine = 'EPOCH 2026.0 \u00b7 THE FORGE PRESS';
+    const boxW = Math.max(
+      raster.measureText(title, 9.5),
+      raster.measureText(seedLine, 6.4),
+      raster.measureText(epochLine, 6.4),
+    ) + 20;
+    const boxH = 54;
+    const x0 = (rasterW - boxW) / 2;
+    const y0 = rasterH - boxH - 30;
+    const x1 = x0 + boxW;
+    const y1 = y0 + boxH;
+    raster.triangle(x0, y0, x1, y0, x1, y1, paper, 0.93, false);
+    raster.triangle(x0, y0, x1, y1, x0, y1, paper, 0.93, false);
+    for (const inset of [0, 3]) {
+      const a = x0 + inset, b = y0 + inset, c = x1 - inset, d = y1 - inset;
+      raster.line(a, b, c, b, line, { alpha: 0.5, aa: true });
+      raster.line(c, b, c, d, line, { alpha: 0.5, aa: true });
+      raster.line(c, d, a, d, line, { alpha: 0.5, aa: true });
+      raster.line(a, d, a, b, line, { alpha: 0.5, aa: true });
+    }
+    const boxCx = (x0 + x1) / 2;
+    raster.textCentered(boxCx, y0 + 10, title, 9.5, line, { alpha: 0.92, aa: true });
+    raster.textCentered(boxCx, y0 + 27, seedLine, 6.4, line, { alpha: 0.85, aa: true });
+    raster.textCentered(boxCx, y0 + 38, epochLine, 6.4, line, { alpha: 0.45, aa: true });
+
+    // The compass rose.
+    const R = 50;
+    const rx = rasterW - R - 26;
+    const ry = 200 + R;
+    raster.dot(rx, ry, R * 1.06, paper, 0.9, true);
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * TAU;
+      const inner = R * (i % 6 === 0 ? 0.82 : 0.9);
+      raster.line(
+        rx + Math.cos(a) * inner, ry + Math.sin(a) * inner,
+        rx + Math.cos(a) * R, ry + Math.sin(a) * R,
+        line, { alpha: 0.4, aa: true },
+      );
+    }
+    raster.ring(rx, ry, R * 0.78, line, 0.35, true);
+    raster.ring(rx, ry, R * 0.2, line, 0.45, true);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * TAU;
+      const long = k % 2 === 0;
+      const reach = R * (long ? 0.76 : 0.46);
+      const halfWidth = R * (long ? 0.11 : 0.08);
+      const tipX = rx + Math.cos(a) * reach;
+      const tipY = ry + Math.sin(a) * reach;
+      const ox = -Math.sin(a) * halfWidth;
+      const oy = Math.cos(a) * halfWidth;
+      raster.triangle(rx, ry, tipX, tipY, rx + ox, ry + oy, line, 0.75, true);
+      raster.triangle(rx, ry, tipX, tipY, rx - ox, ry - oy, line, 0.34, true);
+    }
+    raster.textCentered(rx, ry - R * 1.3, 'N', 7, line, { alpha: 0.9, aa: true });
+
+    // Degree ticks around the rim, lettered every 45 degrees.
+    const shortSide = Math.min(rasterW, rasterH);
+    const limbR = shortSide * 0.38;
+    const lx = rasterW / 2;
+    const ly = rasterH / 2;
+    raster.ring(lx, ly, limbR, line, 0.3, true);
+    for (let deg = 0; deg < 360; deg += 5) {
+      const a = (deg * Math.PI) / 180;
+      const long = deg % 45 === 0;
+      const mid = deg % 15 === 0;
+      const len = limbR * (long ? 0.055 : mid ? 0.032 : 0.018);
+      raster.line(
+        lx + Math.cos(a) * limbR, ly + Math.sin(a) * limbR,
+        lx + Math.cos(a) * (limbR - len), ly + Math.sin(a) * (limbR - len),
+        line, { alpha: 0.34, aa: true },
+      );
+      if (long) {
+        const rr = limbR - len - 9;
+        raster.textCentered(
+          lx + Math.cos(a) * rr, ly + Math.sin(a) * rr - 3,
+          `${String(deg).padStart(3, '0')}\u00b0`, 6, line, { alpha: 0.4, aa: true },
+        );
+      }
+    }
+  };
+
+  /**
+   * The full chart workload: clear + graticule + deep sky + instrument plate +
+   * stars + figures, ch1's mix on a dirty frame — the one where the plate has
+   * to be re-baked because the view moved.
+   */
   const chartFrame = (): void => {
     raster.clear(paper);
     // Graticule: 5 declination rings + 12 meridians at 72 steps.
@@ -323,6 +432,7 @@ export async function runAllBenches(
         started = true;
       }
     }
+    chartFurniture();
     // Stars, with ch1's radius/alpha formulas and diamond spikes.
     for (let i = 0; i < sky.stars.length; i++) {
       const star = sky.stars[i]!;

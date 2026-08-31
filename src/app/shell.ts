@@ -46,6 +46,17 @@ export class Shell {
    * and wiping there reads as a glitch rather than as a page turn.
    */
   private reveal = 1;
+  /**
+   * When the wipe started, on the wall clock.
+   *
+   * Not accumulated from the frame's dt: the loop clamps dt so a stalled tab
+   * cannot blow up the simulation, which is right for the simulation and wrong
+   * for a transition with a fixed duration — under any frame starvation the
+   * wipe would then take as many *frames* as it wanted rather than half a
+   * second, and could sit half-printed indefinitely. Elapsed time is what a
+   * half-second transition is actually a function of.
+   */
+  private revealStart = 0;
 
   private palette: Palette = DEFAULT_PALETTE;
   private inks: InkSet = new InkSet(DEFAULT_PALETTE);
@@ -417,7 +428,10 @@ export class Shell {
       // Start the wipe on the chapter's first frame rather than when the
       // navigation began: a chapter is a dynamic import, and a wipe that ran
       // during the fetch would be over before there was anything to reveal.
-      if (!isReseed) this.reveal = 0;
+      if (!isReseed) {
+        this.reveal = 0;
+        this.revealStart = performance.now();
+      }
       // A chapter loaded, so whatever the browser is holding is current. Spend
       // the stale-build reload again if a *later* deploy strands this session.
       try { sessionStorage.removeItem('forge:reloaded-for-stale-build'); } catch { /* no-op */ }
@@ -504,7 +518,9 @@ export class Shell {
     const aspect = this.ctx.width / Math.max(1, this.ctx.height);
     this.camera.update(dt, aspect);
 
-    if (this.reveal < 1) this.reveal = Math.min(1, this.reveal + dt / WIPE_SECONDS);
+    if (this.reveal < 1) {
+      this.reveal = Math.min(1, (performance.now() - this.revealStart) / (WIPE_SECONDS * 1000));
+    }
     this.print.reveal = this.reveal;
 
     if (this.chapter) {
