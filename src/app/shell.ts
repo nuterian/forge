@@ -23,6 +23,20 @@ import type { ChapterDef, ChapterInstance } from './chapter.ts';
 
 /** How long the ink takes to cross the frame when a chapter arrives. */
 const WIPE_SECONDS = 0.5;
+/**
+ * The passage between chapters.
+ *
+ * Leaving, the chapter you are in is dragged outward through the press and
+ * floods to paper; arriving, the new one comes in out of the same drag and
+ * settles. The two halves are deliberately lopsided — you leave faster than
+ * you arrive, which is what makes it read as travelling *to* somewhere rather
+ * than as a symmetrical wipe.
+ */
+const WARP_OUT_SECONDS = 0.34;
+const WARP_IN_SECONDS = 0.62;
+
+/** Where the shell is in that passage. */
+type Phase = 'idle' | 'leaving' | 'arriving';
 
 interface Route {
   /** Empty string routes to the gallery index. */
@@ -57,6 +71,11 @@ export class Shell {
    * half-second transition is actually a function of.
    */
   private revealStart = 0;
+
+  private phase: Phase = 'idle';
+  private phaseStart = 0;
+  /** The route the current departure is headed for. */
+  private pendingRoute: Route | null = null;
 
   private palette: Palette = DEFAULT_PALETTE;
   private inks: InkSet = new InkSet(DEFAULT_PALETTE);
@@ -188,7 +207,13 @@ export class Shell {
   }
 
   private updateChrome(def: ChapterDef, seed?: string): void {
+    // The way back, in front of the plate number: an anchor rather than a
+    // button so it is a real link — middle-click, copy, and the browser's own
+    // back button all keep working, and the departure is the same one the
+    // browser's back triggers through hashchange.
     this.mastheadEl.innerHTML = `
+      <a class="masthead-back" href="#/" title="Back to the index"
+         aria-label="Back to the index"><span></span></a>
       <span class="masthead-index">${String(def.index).padStart(2, '0')}</span>
       <div>
         <h1 class="masthead-title">${def.title}</h1>
@@ -277,8 +302,45 @@ export class Shell {
 
   private async syncToRoute(): Promise<void> {
     const route = this.currentRoute();
+    const def = route.chapterId ? findChapter(route.chapterId) ?? null : null;
+
+    if (route.chapterId && !def) {
+      location.hash = '#/';
+      return;
+    }
+
+    // Nothing to do at all: the same chapter on the same seed. This is the
+    // case that fires when the hash is rewritten but the destination has not
+    // actually changed, and warping for it would be a glitch.
+    if (def && this.chapterDef?.id === def.id && this.chapter && this.currentSeed === route.seed) {
+      return;
+    }
+
+    // A reseed of the chapter you are already in is not a journey — it is the
+    // same place with a different roll. It keeps the view and takes no warp.
+    const isReseed = def !== null && this.chapterDef?.id === def.id && this.chapter !== null;
+
+    // Leaving somewhere real for somewhere else: play the departure first,
+    // with the chapter you are leaving still on screen being dragged out of
+    // frame. commitRoute() runs when it finishes.
+    if (!isReseed && this.chapter !== null) {
+      this.pendingRoute = route;
+      this.phase = 'leaving';
+      this.phaseStart = performance.now();
+      return;
+    }
+
+    await this.commitRoute(route);
+  }
+
+  /** Actually go: swap the page over, and start the arrival if there is one. */
+  private async commitRoute(route: Route): Promise<void> {
+    this.pendingRoute = null;
 
     if (!route.chapterId) {
+      this.phase = 'idle';
+      this.print.warp = 0;
+      this.reveal = 1;
       this.showGallery();
       return;
     }
@@ -292,13 +354,14 @@ export class Shell {
     this.hideGallery();
 
     if (!def.available) {
+      this.phase = 'idle';
+      this.print.warp = 0;
+      this.reveal = 1;
       this.updateChrome(def);
       this.disposeChapter();
       this.showComingSoon(def);
       return;
     }
-    // Same chapter, same seed → nothing to do. A seed change reloads.
-    if (this.chapterDef?.id === def.id && this.chapter && this.currentSeed === route.seed) return;
 
     await this.loadChapter(def, route.seed);
   }
@@ -425,12 +488,14 @@ export class Shell {
       }
 
       this.chapter = instance;
-      // Start the wipe on the chapter's first frame rather than when the
-      // navigation began: a chapter is a dynamic import, and a wipe that ran
-      // during the fetch would be over before there was anything to reveal.
+      // Start the arrival on the chapter's first frame rather than when the
+      // navigation began: a chapter is a dynamic import, and a transition that
+      // ran during the fetch would be over before there was anything to show.
       if (!isReseed) {
         this.reveal = 0;
         this.revealStart = performance.now();
+        this.phase = 'arriving';
+        this.phaseStart = performance.now();
       }
       // A chapter loaded, so whatever the browser is holding is current. Spend
       // the stale-build reload again if a *later* deploy strands this session.
@@ -518,6 +583,8 @@ export class Shell {
     const aspect = this.ctx.width / Math.max(1, this.ctx.height);
     this.camera.update(dt, aspect);
 
+    this.advanceTransition();
+
     if (this.reveal < 1) {
       this.reveal = Math.min(1, (performance.now() - this.revealStart) / (WIPE_SECONDS * 1000));
     }
@@ -543,6 +610,45 @@ export class Shell {
 
     this.labels.update(this.camera, rect.width, rect.height);
     this.chapterPanel?.refresh();
+  }
+
+  /**
+   * Run the departure and the arrival. Both are read off the wall clock rather
+   * than accumulated from the frame's dt, for the same reason the wipe is: the
+   * loop clamps dt, and a transition with a fixed duration that counts frames
+   * instead of seconds can sit stranded halfway on a starved tab.
+   */
+  private advanceTransition(): void {
+    if (this.phase === 'idle') return;
+    const elapsed = (performance.now() - this.phaseStart) / 1000;
+
+    if (this.phase === 'leaving') {
+      const t = Math.min(1, elapsed / WARP_OUT_SECONDS);
+      // Accelerating away: cubed, so it creeps and then goes.
+      this.print.warp = t * t * t;
+      this.reveal = 1 - t;
+      this.print.reveal = this.reveal;
+      if (t >= 1) {
+        const route = this.pendingRoute;
+        this.phase = 'idle';
+        // Hold the frame at paper through the load so nothing flashes between
+        // the chapter that left and the one still being fetched.
+        this.print.warp = 1;
+        this.reveal = 0;
+        this.print.reveal = 0;
+        if (route) void this.commitRoute(route);
+      }
+      return;
+    }
+
+    // Arriving: decelerating in, which is the opposite easing to the way out.
+    const t = Math.min(1, elapsed / WARP_IN_SECONDS);
+    const eased = 1 - Math.pow(1 - t, 3);
+    this.print.warp = 1 - eased;
+    if (t >= 1) {
+      this.phase = 'idle';
+      this.print.warp = 0;
+    }
   }
 
   // -- notices -------------------------------------------------------------

@@ -109,6 +109,27 @@ export async function runAllBenches(
       },
     },
     {
+      // The same pass mid-warp. It takes the expensive branch — eight
+      // impressions with the colour plates pulled apart, twenty-four samples
+      // against the resting path's three — so it is measured separately rather
+      // than left to hide behind a number taken at rest. It only runs for
+      // about a second across a route change, but a second at 60fps is sixty
+      // frames that still have to land.
+      id: 'gpu.post.warp',
+      name: 'Print post pass mid-warp, 1080p',
+      reps: 60,
+      setup: () => {
+        const print = new PrintPass(gl);
+        print.warp = 0.5;
+        const source = new Framebuffer(gl, BENCH_WIDTH, BENCH_HEIGHT, { samples: 0, depth: false });
+        source.bind();
+        gl.clearColor(0.4, 0.35, 0.3, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        disposables.push(print, source);
+        return { draw: () => print.render(source, BENCH_WIDTH, BENCH_HEIGHT, 1.25) };
+      },
+    },
+    {
       id: 'gpu.planet',
       name: 'Worldsmith planet, planet-filling',
       reps: 60,

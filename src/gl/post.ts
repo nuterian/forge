@@ -46,6 +46,12 @@ export class PrintPass {
    * setting — settings are the chapter's to tune, and this is the shell's.
    */
   reveal = 1;
+  /**
+   * How hard the frame is being dragged, 0–1. The shell runs this up and back
+   * down across a route change; see the warp in post.frag. Zero is the resting
+   * state and takes the cheap path through the shader.
+   */
+  warp = 0;
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
@@ -78,6 +84,7 @@ export class PrintPass {
       .set('uMisregister', s.misregister)
       .set('uHalftone', s.halftone)
       .set('uReveal', this.reveal)
+      .set('uWarp', this.warp)
       .setTexture('uScene', source.texture, 0);
 
     this.quad.draw();

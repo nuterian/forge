@@ -37,6 +37,13 @@ export const THRESHOLDS: Record<string, number> = {
   // GPU, ms per draw at 1920×1080, depth test off, sustained submission.
   'gpu.sky': 0.22,
   'gpu.post': 0.1,
+  // Eight impressions instead of one — twenty-four texture samples against the
+  // resting path's three. It measures 0.062ms against the resting pass's
+  // 0.047, which is far less than eight times: the taps walk outward from the
+  // same point and hit the same cache lines, so the pass stays bandwidth-bound
+  // rather than sample-bound. Budgeted at roughly twice the measured figure,
+  // like everything else here, rather than at what eight times three suggested.
+  'gpu.post.warp': 0.15,
   'gpu.planet': 0.55,
   'gpu.bake': 2.0,
   'gpu.body': 0.13,
