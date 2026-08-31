@@ -401,7 +401,13 @@ export class Gallery {
       grid.append(this.buildTile(def));
     }
 
-    this.element.append(header, grid);
+    // One sheet holding header and grid, centered in the viewport by auto
+    // margins — see .gallery-sheet in the stylesheet for why margins and not
+    // justify-content.
+    const sheet = document.createElement('div');
+    sheet.className = 'gallery-sheet';
+    sheet.append(header, grid);
+    this.element.append(sheet);
   }
 
   private buildTile(def: ChapterDef): HTMLElement {

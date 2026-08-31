@@ -613,6 +613,8 @@ input[type='range']::-moz-range-thumb {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   background: var(--paper);
+  display: flex;
+  flex-direction: column;
   padding: clamp(24px, 5vh, 64px) clamp(20px, 6vw, 96px);
   /* Clear the notch and the home indicator: the sheet scrolls edge to edge. */
   padding-top: max(clamp(24px, 5vh, 64px), env(safe-area-inset-top));
@@ -621,9 +623,20 @@ input[type='range']::-moz-range-thumb {
   padding-left: max(clamp(20px, 6vw, 96px), env(safe-area-inset-left));
 }
 
-.gallery-header {
+/* The proof sheet sits dead-centre of the viewport, both axes, via auto
+   margins on a flex item — NOT justify-content/align-items center, which
+   clip the top of anything taller than the viewport with no way to scroll
+   to it. Auto margins center when there is room and collapse to zero when
+   there is not, so a phone still scrolls the sheet from its very top. The
+   explicit width keeps the grid's auto-fill working against a definite size. */
+.gallery-sheet {
+  margin: auto;
+  width: 100%;
   max-width: 1180px;
-  margin: 0 auto 34px;
+}
+
+.gallery-header {
+  margin: 0 0 34px;
 }
 
 .gallery-title {
@@ -655,8 +668,6 @@ input[type='range']::-moz-range-thumb {
 }
 
 .gallery-grid {
-  max-width: 1180px;
-  margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 22px;
