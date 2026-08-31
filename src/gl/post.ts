@@ -39,6 +39,13 @@ export class PrintPass {
 
   settings: PrintSettings = { ...DEFAULT_PRINT };
   paper: Vec3 = vec3.create(0.04, 0.05, 0.07);
+  /**
+   * How much of the frame has been printed, 0–1. The shell runs this from 0 to
+   * 1 over half a second when you arrive at a chapter and leaves it at 1 for
+   * the rest of the session; see the wipe in post.frag. It is not a print
+   * setting — settings are the chapter's to tune, and this is the shell's.
+   */
+  reveal = 1;
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
@@ -70,6 +77,7 @@ export class PrintPass {
       .set('uVignette', s.vignette)
       .set('uMisregister', s.misregister)
       .set('uHalftone', s.halftone)
+      .set('uReveal', this.reveal)
       .setTexture('uScene', source.texture, 0);
 
     this.quad.draw();

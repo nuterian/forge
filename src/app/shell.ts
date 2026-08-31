@@ -21,6 +21,9 @@ import {
 import { CHAPTERS, findChapter } from '../chapters/registry.ts';
 import type { ChapterDef, ChapterInstance } from './chapter.ts';
 
+/** How long the ink takes to cross the frame when a chapter arrives. */
+const WIPE_SECONDS = 0.5;
+
 interface Route {
   /** Empty string routes to the gallery index. */
   chapterId: string;
@@ -35,6 +38,14 @@ export class Shell {
   private camera!: OrbitCamera;
   private labels!: LabelLayer;
   private loop!: Loop;
+
+  /**
+   * The chapter wipe. Arriving at a chapter pulls the image across the frame
+   * through the print pass's ordered screen (see uReveal in post.frag); a
+   * reroll does not, because a reroll changes the content and not the view,
+   * and wiping there reads as a glitch rather than as a page turn.
+   */
+  private reveal = 1;
 
   private palette: Palette = DEFAULT_PALETTE;
   private inks: InkSet = new InkSet(DEFAULT_PALETTE);
@@ -356,9 +367,11 @@ export class Shell {
 
     this.updateChrome(def, seed);
 
+    // The loader speaks the same language as the wipe it precedes: a screen
+    // filling in discrete steps, not a spinner.
     const loading = document.createElement('div');
     loading.className = 'loading';
-    loading.textContent = 'Inking…';
+    loading.innerHTML = '<span class="loading-label">Inking</span><span class="loading-bar"></span>';
     this.root.append(loading);
 
     try {
@@ -401,6 +414,10 @@ export class Shell {
       }
 
       this.chapter = instance;
+      // Start the wipe on the chapter's first frame rather than when the
+      // navigation began: a chapter is a dynamic import, and a wipe that ran
+      // during the fetch would be over before there was anything to reveal.
+      if (!isReseed) this.reveal = 0;
       // A chapter loaded, so whatever the browser is holding is current. Spend
       // the stale-build reload again if a *later* deploy strands this session.
       try { sessionStorage.removeItem('forge:reloaded-for-stale-build'); } catch { /* no-op */ }
@@ -486,6 +503,9 @@ export class Shell {
 
     const aspect = this.ctx.width / Math.max(1, this.ctx.height);
     this.camera.update(dt, aspect);
+
+    if (this.reveal < 1) this.reveal = Math.min(1, this.reveal + dt / WIPE_SECONDS);
+    this.print.reveal = this.reveal;
 
     if (this.chapter) {
       this.chapter.update(dt, elapsed);
