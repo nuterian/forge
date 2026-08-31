@@ -28,6 +28,7 @@ import type { LabelSpec } from '../../ui/labels.ts';
 import { SURFACE_STYLE_ID } from '../../scene/body.ts';
 import { GlowBillboard } from '../../scene/glow.ts';
 import { SkyPass } from '../../scene/sky.ts';
+import { Drone, type Room } from '../../audio/drone.ts';
 import { BELT, PLANETS, TOUR_ORDER, type BodyDef, type MoonDef } from './bodies.ts';
 import { dateFromDays, daysFromDate, meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from '../../core/kepler.ts';
 
@@ -132,8 +133,33 @@ const ORRERY_INKS: OrreryInks[] = [
   { dust: 3, corona: 2 }, // cold band, deep fire
 ];
 
+/**
+ * A machine hall. The most body of the three: a resonant lowpass only a few
+ * harmonics up, a loud octave partner, and the air pulled down to a low band
+ * so it reads as scale rather than as sky. Slow — this room is turning.
+ */
+const ROOM: Room = {
+  octave: 1,
+  cutoff: 4,
+  resonance: 1.4,
+  upper: 0.5,
+  airHz: 900,
+  airQ: 1.6,
+  air: 0.9,
+  // A fifth, low: the gear ratio in a machine that turns.
+  partial: 3,
+  partialLevel: 0.035,
+  wobbleHz: 0.11,
+  cents: 7,
+  depth: 0.28,
+  level: 0.45,
+};
+
 export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
-  const { gl, camera, inks, labels, controls, print } = ctx;
+  const { gl, camera, inks, labels, controls, print, audio } = ctx;
+
+  const drone = new Drone(audio, ctx.seed, ROOM);
+  audio.addVoice(drone);
 
   // Its own stream: the belt, the tour and every orbit are fixed features of
   // the real system, and none of them may move because the sky changed colour.
@@ -989,6 +1015,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     },
     dispose() {
       camera.inputEnabled = true;
+      audio.stopVoice(drone);
       for (const program of [bodyProgram, sunProgram, ringProgram, orbitProgram, asteroidProgram]) {
         program.dispose();
       }

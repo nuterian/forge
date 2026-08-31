@@ -29,6 +29,8 @@ import { DEFAULT_PALETTE, mixHex, type Palette } from '../ui/palette.ts';
 import { Rng } from '../core/rng.ts';
 import { TAU } from '../core/math.ts';
 import { Starfield } from './starfield.ts';
+import { Drone, type Room } from '../audio/drone.ts';
+import type { AudioEngine } from '../audio/engine.ts';
 
 interface VignetteInk {
   paper: string;
@@ -485,6 +487,36 @@ const FLOOD_STAGGER = 120;
 const FLOOD_EDGE = 0.34;
 
 /**
+ * The approach, heard.
+ *
+ * The index is already a journey — the sheet's sky drifts toward you the whole
+ * time you are looking at it — so the front door hums the way a hull does when
+ * something very large is under way and nothing is happening yet. Everything
+ * about it is set low: the lowest octave, an open filter, almost no resonance,
+ * and the air pulled right down into a rumble rather than left up where it
+ * would read as hiss. It should not be noticeable as a sound. It should make
+ * the room the reader is sitting in feel slightly larger.
+ *
+ * Its seed is fixed: the way in sounds the same every time, which is the one
+ * place on this site where a constant is more correct than a generator.
+ */
+const INDEX_ROOM: Room = {
+  octave: 1,
+  cutoff: 3,
+  resonance: 0.5,
+  upper: 0.34,
+  airHz: 260,
+  airQ: 1.1,
+  air: 0.62,
+  partial: 4,
+  partialLevel: 0.022,
+  wobbleHz: 0.05,
+  cents: 5,
+  depth: 0.3,
+  level: 0.36,
+};
+
+/**
  * The vignette clock a rested plate is frozen at. Far enough in that every
  * figure has finished drawing itself, and hover picks up from exactly here,
  * so nothing jumps when the pointer arrives.
@@ -521,6 +553,9 @@ export class Gallery {
   private readonly swatchStrip: HTMLElement;
   private header!: HTMLElement;
   private readonly sky = new Starfield();
+  private readonly audio: AudioEngine;
+  /** The index's own bed, alive only while the sheet is on screen. */
+  private drone: Drone | null = null;
   /** rAF timestamp of the previous frame, for the sky's dt. */
   private lastFrame = 0;
 
@@ -531,7 +566,8 @@ export class Gallery {
   private screens: CanvasPattern[] | null = null;
   private screenScale = 0;
 
-  constructor() {
+  constructor(audio: AudioEngine) {
+    this.audio = audio;
     this.element = document.createElement('div');
     this.element.className = 'gallery';
 
@@ -837,6 +873,12 @@ export class Gallery {
 
   show(palette: Palette): void {
     this.element.style.display = '';
+    // show() can run twice for one arrival (a route sync and a hashchange), so
+    // the bed is started only when there is not already one under way.
+    if (!this.drone) {
+      this.drone = new Drone(this.audio, 'the-forge', INDEX_ROOM);
+      this.audio.addVoice(this.drone);
+    }
     this.palette = palette;
     this.sky.setPalette(palette);
     this.lastFrame = 0;
@@ -894,6 +936,10 @@ export class Gallery {
 
   hide(): void {
     this.element.style.display = 'none';
+    if (this.drone) {
+      this.audio.stopVoice(this.drone);
+      this.drone = null;
+    }
     cancelAnimationFrame(this.frameId);
     this.animating = false;
     this.lastFrame = 0;

@@ -14,6 +14,7 @@ import { DEG, TAU, clamp, vec3, type Vec3 } from '../../core/math.ts';
 import { Raster, type RGB } from '../../core/raster.ts';
 import { Rng } from '../../core/rng.ts';
 import { RasterBlitter } from '../../gl/blit.ts';
+import { Drone, type Room } from '../../audio/drone.ts';
 import type { LabelSpec } from '../../ui/labels.ts';
 import { generateSky, type SkyModel } from './sky.ts';
 import { generateDeepSky } from './deepsky.ts';
@@ -47,8 +48,37 @@ const ATLAS_TITLES = [
   'TABULA ASTRORUM',
 ];
 
+/**
+ * The dome at night: almost no body, and a wide thread of cold air over it.
+ * The two tones sit at the written octave and the lowpass is left open, so
+ * what you mostly hear is the room rather than the note — which is the right
+ * shape for a chapter where the subject is the emptiness between the stars.
+ */
+const ROOM: Room = {
+  octave: 1,
+  cutoff: 6,
+  resonance: 0.7,
+  upper: 0.22,
+  airHz: 2600,
+  airQ: 0.8,
+  air: 0.28,
+  // A fifth two octaves up: a cold pinprick over the dome, which is what
+  // this chapter is a picture of.
+  partial: 5,
+  partialLevel: 0.05,
+  wobbleHz: 0.07,
+  cents: 4,
+  depth: 0.36,
+  level: 0.42,
+};
+
 export function create(ctx: ChapterContext): ChapterInstance {
-  const { gl, camera, inks, labels, controls, canvas, print } = ctx;
+  const { gl, camera, inks, labels, controls, canvas, print, audio } = ctx;
+
+  // The room this chart is heard in. Its pitch comes from the seed's own audio
+  // stream, so the same sky always hums at the same note and a reroll moves it.
+  const drone = new Drone(audio, ctx.seed, ROOM);
+  audio.addVoice(drone);
 
   // Heavier paper for the chart: it should feel like an old plate.
   print.settings.paperGrain = 0.045;
@@ -824,6 +854,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
       camera.maxFov = 70 * DEG;
       camera.fov = 42 * DEG;
       labels.projector = null;
+      audio.stopVoice(drone);
       blitter.dispose();
     },
   };

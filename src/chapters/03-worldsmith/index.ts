@@ -25,6 +25,7 @@ import { meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from '.
 import { SURFACE_STYLE_ID } from '../../scene/body.ts';
 import { GlowBillboard } from '../../scene/glow.ts';
 import { SkyPass } from '../../scene/sky.ts';
+import { Drone, type Room } from '../../audio/drone.ts';
 import { applyPlanetUniforms, bakePlanetFields, classifyPlanet, createRampTexture, generatePlanet, generateStar } from './planet.ts';
 
 import planetVert from './shaders/planet.vert?raw';
@@ -50,8 +51,34 @@ interface Settings {
   pace: number;
 }
 
+/**
+ * The closest of the three to the hum this whole family of sounds descends
+ * from: an octave higher than the others, a tight resonant lowpass, and the
+ * fastest wobble — a thing that is running rather than a place that is quiet.
+ */
+const ROOM: Room = {
+  octave: 2,
+  cutoff: 3.5,
+  resonance: 3,
+  upper: 0.62,
+  airHz: 1500,
+  airQ: 3,
+  air: 0.73,
+  // The third harmonic, close in: heat inside the thing rather than light
+  // above it.
+  partial: 3,
+  partialLevel: 0.03,
+  wobbleHz: 0.19,
+  cents: 10,
+  depth: 0.22,
+  level: 0.4,
+};
+
 export function create(ctx: ChapterContext): ChapterInstance {
-  const { gl, camera, inks, labels, controls, rng, isReseed } = ctx;
+  const { gl, camera, inks, labels, controls, rng, isReseed, audio } = ctx;
+
+  const drone = new Drone(audio, ctx.seed, ROOM);
+  audio.addVoice(drone);
 
   // The system forms around its star.
   const star = generateStar(rng);
@@ -479,6 +506,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
       viewportHeight = height;
     },
     dispose() {
+      audio.stopVoice(drone);
       camera.minDistance = 0.4;
       camera.maxDistance = 900;
       for (const program of [planetProgram, moonProgram, sunProgram, orbitProgram]) {

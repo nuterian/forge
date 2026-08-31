@@ -430,7 +430,7 @@ export class Shell {
     this.rightRail.replaceChildren();
     this.labels.element.style.display = 'none';
     if (!this.gallery) {
-      this.gallery = new Gallery();
+      this.gallery = new Gallery(this.audio);
       this.root.append(this.gallery.element);
     }
     this.gallery.show(this.palette);
@@ -530,6 +530,7 @@ export class Shell {
         print: this.print,
         labels: this.labels,
         controls: chapterPanel,
+        audio: this.audio,
         size: { width: this.ctx.width, height: this.ctx.height },
         seed,
         rng: new Rng(seed),
