@@ -30,6 +30,22 @@ import { noiseBuffer, stopAndFree } from './util.ts';
  */
 const ROOTS = [55.0, 61.74, 65.41, 73.42, 82.41, 98.0];
 
+function pickRoot(rng: Rng): number {
+  return rng.pick(ROOTS);
+}
+
+/**
+ * The note a seed will hum at, before the room's octave is applied.
+ *
+ * Exported so the warp can land its arrival on the pitch the chapter it is
+ * delivering you to is about to start humming — which is what turns a whoosh
+ * into an arrival somewhere. It draws from the same stream in the same order
+ * as the constructor below, so the two cannot disagree.
+ */
+export function rootFor(seed: string): number {
+  return pickRoot(new Rng(`audio:${seed}`));
+}
+
 /**
  * A chapter's character. The seed picks the note; this picks the instrument,
  * because a reader arriving at two chapters on the same seed must still hear
@@ -48,9 +64,17 @@ export interface Room {
    *
    * `air` is not comparable between rooms by eye. A bandpass passes noise power
    * in proportion to its effective bandwidth — about 1.57 x fc/Q — so the same
-   * number is twenty-odd decibels louder at Q 0.8 than at Q 3, and these three
-   * gains were each solved backwards from the ratio the room wanted against
-   * its tones rather than picked to look consistent in the source.
+   * number is twenty-odd decibels louder at Q 0.8 than at Q 3, and these gains
+   * were each solved backwards from the ratio the room wanted against its
+   * tones rather than picked to look consistent in the source.
+   *
+   * That ratio wants to be around thirty decibels, not fifteen. Noise and a
+   * tone at the same measured level are nothing like as loud as each other:
+   * the tone sits in one critical band and the noise smears across twenty, so
+   * the ear finds it first and tires of it fastest. A bed set by the numbers
+   * to sit "under" the tones was reported as plainly noisy, and it was right.
+   * Keep the bands narrow (Q at or above 1.5) and out of 2-4 kHz, where the
+   * ear is most sensitive and where hiss is least forgivable.
    */
   airHz: number;
   airQ: number;
@@ -114,7 +138,8 @@ export class Drone implements Voice {
     this.room = room;
 
     const rng = new Rng(`audio:${seed}`);
-    this.root = rng.pick(ROOTS) * room.octave;
+    // The first draw, and rootFor() above depends on it staying first.
+    this.root = pickRoot(rng) * room.octave;
     // Cents, not Hz: the beat between the octave partner and the root's second
     // harmonic has to stay the same *musical* width at every pitch, or the low
     // tunings shimmer and the high ones sound merely out of tune.
@@ -253,9 +278,15 @@ export class Drone implements Voice {
     const fade = this.fade;
     if (!fade) return;
 
+    // Read the level BEFORE cancelling, not after. cancelScheduledValues drops
+    // a ramp that has not finished, and the param then reverts to the value it
+    // held before that ramp began — which for a room still fading in is zero.
+    // Reading second therefore fades from silence to silence and cuts the
+    // room dead, which is exactly the click this codebase forbids.
     const gain = fade.gain;
+    const from = gain.value;
     gain.cancelScheduledValues(now);
-    gain.setValueAtTime(gain.value, now);
+    gain.setValueAtTime(from, now);
     gain.linearRampToValueAtTime(0, now + FADE_OUT);
 
     // Free at the end of the fade, not at the start of it. The shared tail of

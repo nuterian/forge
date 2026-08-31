@@ -140,19 +140,19 @@ const ORRERY_INKS: OrreryInks[] = [
  */
 const ROOM: Room = {
   octave: 1,
-  cutoff: 4,
+  cutoff: 3,
   resonance: 1.4,
   upper: 0.5,
   airHz: 900,
   airQ: 1.6,
-  air: 0.9,
+  air: 0.16,
   // A fifth, low: the gear ratio in a machine that turns.
   partial: 3,
-  partialLevel: 0.035,
+  partialLevel: 0.024,
   wobbleHz: 0.11,
   cents: 7,
   depth: 0.28,
-  level: 0.45,
+  level: 0.26,
 };
 
 export async function create(ctx: ChapterContext): Promise<ChapterInstance> {

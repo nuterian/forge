@@ -56,20 +56,20 @@ const ATLAS_TITLES = [
  */
 const ROOM: Room = {
   octave: 1,
-  cutoff: 6,
+  cutoff: 3,
   resonance: 0.7,
   upper: 0.22,
-  airHz: 2600,
-  airQ: 0.8,
-  air: 0.28,
+  airHz: 1200,
+  airQ: 1.6,
+  air: 0.1,
   // A fifth two octaves up: a cold pinprick over the dome, which is what
   // this chapter is a picture of.
   partial: 5,
-  partialLevel: 0.05,
+  partialLevel: 0.028,
   wobbleHz: 0.07,
   cents: 4,
   depth: 0.36,
-  level: 0.42,
+  level: 0.34,
 };
 
 export function create(ctx: ChapterContext): ChapterInstance {

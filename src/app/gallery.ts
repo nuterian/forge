@@ -507,13 +507,13 @@ const INDEX_ROOM: Room = {
   upper: 0.34,
   airHz: 260,
   airQ: 1.1,
-  air: 0.62,
+  air: 0.22,
   partial: 4,
-  partialLevel: 0.022,
+  partialLevel: 0.016,
   wobbleHz: 0.05,
   cents: 5,
   depth: 0.3,
-  level: 0.36,
+  level: 0.3,
 };
 
 /**

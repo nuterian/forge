@@ -63,15 +63,15 @@ const ROOM: Room = {
   upper: 0.62,
   airHz: 1500,
   airQ: 3,
-  air: 0.73,
+  air: 0.08,
   // The third harmonic, close in: heat inside the thing rather than light
   // above it.
   partial: 3,
-  partialLevel: 0.03,
+  partialLevel: 0.022,
   wobbleHz: 0.19,
   cents: 10,
   depth: 0.22,
-  level: 0.4,
+  level: 0.22,
 };
 
 export function create(ctx: ChapterContext): ChapterInstance {
