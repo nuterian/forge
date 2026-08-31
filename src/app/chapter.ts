@@ -12,7 +12,6 @@ import type { PrintPass } from '../gl/post.ts';
 import type { InkSet } from '../ui/palette.ts';
 import type { LabelLayer } from '../ui/labels.ts';
 import type { ControlPanel } from '../ui/controls.ts';
-import type { AudioEngine } from '../audio/engine.ts';
 
 export interface ChapterContext {
   gl: WebGL2RenderingContext;
@@ -24,13 +23,6 @@ export interface ChapterContext {
   labels: LabelLayer;
   /** Chapter-specific controls appear here. */
   controls: ControlPanel;
-  /**
-   * The site's voice. May have no context at all — sound is opt-in, and a
-   * chapter must open in silence and start humming later if the reader turns
-   * it on, rather than treating "off" as a case to skip. Whatever a chapter
-   * starts here it stops in dispose(), exactly like a GL resource.
-   */
-  audio: AudioEngine;
   /** Drawing-buffer size in physical pixels. */
   size: { width: number; height: number };
   /** The seed this chapter was opened with. */

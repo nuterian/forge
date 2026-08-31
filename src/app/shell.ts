@@ -11,9 +11,6 @@ import { createContext, maxSamples, resizeToDisplay, WebGLNotSupportedError, typ
 import { registerChunks } from '../gl/chunks.ts';
 import { Framebuffer } from '../gl/framebuffer.ts';
 import { PrintPass, DEFAULT_PRINT } from '../gl/post.ts';
-import { AudioEngine } from '../audio/engine.ts';
-import { CameraMotion } from '../audio/motion.ts';
-import { switchCue } from '../audio/ui.ts';
 import { Gallery } from './gallery.ts';
 import { ControlPanel } from '../ui/controls.ts';
 import { LabelLayer } from '../ui/labels.ts';
@@ -39,24 +36,6 @@ const WIPE_SECONDS = 0.5;
 const WARP_OUT_SECONDS = 0.34;
 const WARP_IN_SECONDS = 0.62;
 
-/**
- * Camera speeds past which the movement did not happen: it was a cut.
- *
- * Both are several times faster than the fastest a hand can drag, so a real
- * gesture never reaches them and a teleport always does.
- */
-const TELEPORT_ANGULAR = 13;
-const TELEPORT_LINEAR = 130;
-
-/**
- * How long after a chapter loads the camera belongs to the shell.
- *
- * The pivot resets, the chapter frames its shot, and the camera damps into it
- * over roughly a second. A little longer than that, so the tail of the settle
- * is silent too.
- */
-const MOTION_SETTLE_MS = 1400;
-
 /** Where the shell is in that passage. */
 type Phase = 'idle' | 'leaving' | 'arriving';
 
@@ -74,39 +53,6 @@ export class Shell {
   private camera!: OrbitCamera;
   private labels!: LabelLayer;
   private loop!: Loop;
-  /**
-   * The site's voice. Constructed here, but it constructs nothing itself: no
-   * AudioContext exists until a reader turns sound on, and turning it on is a
-   * gesture, which is the only moment a browser would allow one anyway.
-   */
-  private readonly audio = new AudioEngine();
-  /**
-   * The sound of moving, played by whoever is dragging.
-   *
-   * Shell-owned rather than per-chapter because the camera is: every chapter
-   * gets it for free and none of them has to remember to ask. It is added to
-   * the engine once and lives for the session — the voice is silent at rest,
-   * so there is nothing to start or stop.
-   */
-  private readonly motion = new CameraMotion(this.audio);
-  /** Last frame's camera pose, for the velocity the motion voice is made of. */
-  private lastYaw = 0;
-  private lastPitch = 0;
-  private readonly lastEye = vec3.create();
-  /**
-   * Wall-clock time until which the camera is the shell's to move, not the
-   * reader's.
-   *
-   * Loading a chapter resets the pivot outright and then lets the chapter frame
-   * its own opening shot, which the camera damps into over about a second.
-   * Worldsmith's planet can sit forty units from the origin, so that settle is
-   * a genuine forty-units-per-second flight — and the motion voice, which has
-   * no way of knowing it did not come from a hand on the mouse, sang out at
-   * full level on every single navigation. That is what a reader hears as sound
-   * leaking between demos, and it is not a leak at all: it is the voice doing
-   * exactly what it was told, about a movement nobody made.
-   */
-  private motionSettleUntil = 0;
 
   /**
    * The chapter wipe. Arriving at a chapter pulls the image across the frame
@@ -154,8 +100,6 @@ export class Shell {
   private hud!: HTMLElement;
   private mastheadEl!: HTMLElement;
   private navEl!: HTMLElement;
-  /** The one global control, re-parented into whatever chrome is on screen. */
-  private soundToggle!: HTMLButtonElement;
   private leftRail!: HTMLElement;
   private rightRail!: HTMLElement;
 
@@ -196,7 +140,6 @@ export class Shell {
     this.buildChrome();
     this.applyPalette(this.palette);
 
-    this.audio.addVoice(this.motion);
     this.loop = new Loop((dt, elapsed) => this.frame(dt, elapsed));
     this.loop.start();
 
@@ -234,50 +177,12 @@ export class Shell {
     this.rightRail.className = 'rail';
     bottomRight.append(this.rightRail);
 
-    this.soundToggle = this.buildSoundToggle();
-
     this.hud.append(topLeft, topRight, bottomLeft, bottomRight);
     this.root.append(this.labels.element, this.hud);
 
     this.buildNav();
   }
 
-  /**
-   * Sound on or off, and that is the entire mixer.
-   *
-   * It rides in the masthead beside the way back, because it is the same kind
-   * of thing: chrome that belongs to the site rather than to a chapter. It is
-   * a Feather mark, like the back arrow and the reroll beside it — one grid,
-   * one stroke weight, one hand across the whole masthead.
-   *
-   * Default off, and off is the state a stranger arrives in. A portfolio that
-   * makes noise at someone unprompted is a portfolio they close.
-   */
-  private buildSoundToggle(): HTMLButtonElement {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'masthead-sound';
-
-    const sync = (): void => {
-      const on = this.audio.enabled;
-      button.innerHTML = icon(on ? 'volume' : 'volume-off');
-      button.classList.toggle('is-muted', !on);
-      button.setAttribute('aria-pressed', on ? 'true' : 'false');
-      button.setAttribute('aria-label', on ? 'Turn sound off' : 'Turn sound on');
-      button.title = on ? 'Sound on' : 'Sound off';
-    };
-
-    button.addEventListener('click', () => {
-      // The click is itself the gesture the engine has been waiting for, so
-      // the confirmation can be scheduled immediately around the toggle.
-      const on = this.audio.toggle();
-      switchCue(this.audio, on);
-      sync();
-    });
-
-    sync();
-    return button;
-  }
 
   private buildNav(): void {
     this.navEl.replaceChildren();
@@ -316,7 +221,6 @@ export class Shell {
         <h1 class="masthead-title">${def.title}</h1>
         <p class="masthead-subtitle">${def.subtitle}</p>
       </div>`;
-    this.mastheadEl.querySelector('.masthead-back')!.after(this.soundToggle);
 
     // Seeded generators wear their seed; the reroll button prints a new one.
     if (def.seeded && seed !== undefined) {
@@ -468,16 +372,10 @@ export class Shell {
     this.disposeChapter();
     this.clearNotice();
     this.chapterDef = null;
-    // The index keeps the chrome, but only the part of it that belongs to the
-    // whole site: the sound toggle, in the same corner it occupies inside a
-    // chapter, so it never moves out from under anyone.
-    this.mastheadEl.replaceChildren(this.soundToggle);
-    this.navEl.style.display = 'none';
-    this.leftRail.replaceChildren();
-    this.rightRail.replaceChildren();
+    this.hud.style.display = 'none';
     this.labels.element.style.display = 'none';
     if (!this.gallery) {
-      this.gallery = new Gallery(this.audio);
+      this.gallery = new Gallery();
       this.root.append(this.gallery.element);
     }
     this.gallery.show(this.palette);
@@ -485,7 +383,7 @@ export class Shell {
 
   private hideGallery(): void {
     this.gallery?.hide();
-    this.navEl.style.display = '';
+    this.hud.style.display = '';
     this.labels.element.style.display = '';
   }
 
@@ -577,7 +475,6 @@ export class Shell {
         print: this.print,
         labels: this.labels,
         controls: chapterPanel,
-        audio: this.audio,
         size: { width: this.ctx.width, height: this.ctx.height },
         seed,
         rng: new Rng(seed),
@@ -619,9 +516,6 @@ export class Shell {
       }
 
       instance.resize?.(this.ctx.width, this.ctx.height);
-      // From here the camera flies to wherever the chapter framed it. None of
-      // that is the reader moving, so none of it is heard.
-      this.settleMotion();
     } catch (err) {
       if (token !== this.loadToken) return;
       console.error(err);
@@ -692,8 +586,6 @@ export class Shell {
     this.camera.update(dt, aspect);
 
     this.advanceTransition();
-    this.driveMotion(dt);
-    this.audio.update(dt);
 
     if (this.reveal < 1) {
       this.reveal = Math.min(1, (performance.now() - this.revealStart) / (WIPE_SECONDS * 1000));
@@ -720,66 +612,6 @@ export class Shell {
 
     this.labels.update(this.camera, rect.width, rect.height);
     this.chapterPanel?.refresh();
-  }
-
-  /**
-   * Hand the motion voice this frame's camera velocity.
-   *
-   * Two measures, because the chapters move in two different ways. The Star
-   * Chart's sky is at infinity and its camera never travels a millimetre while
-   * you pan it, so panning only shows up as angular rate; the Orrery and
-   * Worldsmith you fly through, and that only shows up as linear rate. The
-   * voice takes the larger of the two.
-   *
-   * The pan comes off the yaw delta, so a drag to the left sends the sound
-   * left. Nothing is allocated: the previous eye position is scratch held at
-   * shell scope.
-   */
-  private driveMotion(dt: number): void {
-    if (dt <= 0) return;
-    const cam = this.camera;
-    // A transition is the shell moving the world, not the reader moving in it.
-    const settling = this.phase !== 'idle' || performance.now() < this.motionSettleUntil;
-
-    // Wrapped: yaw runs unbounded, and the wrap must not read as a slew.
-    let dyaw = cam.yaw - this.lastYaw;
-    if (dyaw > Math.PI) dyaw -= Math.PI * 2;
-    else if (dyaw < -Math.PI) dyaw += Math.PI * 2;
-    const dpitch = cam.pitch - this.lastPitch;
-    this.lastYaw = cam.yaw;
-    this.lastPitch = cam.pitch;
-
-    const ex = cam.position[0]! - this.lastEye[0]!;
-    const ey = cam.position[1]! - this.lastEye[1]!;
-    const ez = cam.position[2]! - this.lastEye[2]!;
-    vec3.copy(this.lastEye, cam.position);
-
-    const angular = Math.hypot(dyaw, dpitch) / dt;
-    const linear = Math.hypot(ex, ey, ez) / dt;
-
-    // A cut is not a movement. Chapters teleport the camera — a reset pivot, a
-    // restored view after a reseed, the probe tour taking the controls — and a
-    // jump of forty units inside one frame reads as thousands of units per
-    // second, which is a bang. Nothing a hand can do comes near these, so
-    // anything past them is a discontinuity and is heard as the silence it is.
-    if (settling || angular > TELEPORT_ANGULAR || linear > TELEPORT_LINEAR) {
-      this.motion.drive(0, 0, 0);
-      return;
-    }
-    this.motion.drive(angular, linear, Math.max(-1, Math.min(1, dyaw * 26)));
-  }
-
-  /**
-   * Hand the motion voice a clean slate: this frame's pose becomes the
-   * reference, and nothing is heard until the camera has stopped being flown
-   * somewhere by the shell.
-   */
-  private settleMotion(): void {
-    this.lastYaw = this.camera.yaw;
-    this.lastPitch = this.camera.pitch;
-    vec3.copy(this.lastEye, this.camera.position);
-    this.motionSettleUntil = performance.now() + MOTION_SETTLE_MS;
-    this.motion.drive(0, 0, 0);
   }
 
   /**

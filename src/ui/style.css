@@ -66,9 +66,6 @@ canvas#stage {
 .hud {
   position: absolute;
   inset: 0;
-  /* Above the proof sheet (z-index 5): the sound toggle is site chrome, and it
-     stays reachable on the index as well as inside a chapter. */
-  z-index: 6;
   pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
@@ -143,34 +140,6 @@ canvas#stage {
   color: var(--ink);
   border-color: var(--ink);
   transform: translateX(-3px);
-}
-
-/* Sound on or off — the site's one global control, and the entire mixer. It
-   sits beside the way back because it is the same kind of thing: chrome that
-   belongs to the site rather than to any one chapter. The two states differ by
-   a shape and not only by a colour, so the mark still reads with the ink
-   turned down. */
-.masthead-sound {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  margin-top: 1px;
-  padding: 0;
-  background: none;
-  border: 1px solid var(--line-faint);
-  color: var(--line);
-  cursor: pointer;
-  transition: color 140ms ease, border-color 140ms ease;
-}
-
-.masthead-sound.is-muted { color: var(--line-dim); }
-
-.masthead-sound:hover,
-.masthead-sound:focus-visible {
-  color: var(--ink);
-  border-color: var(--ink);
 }
 
 /* --- Icons ---------------------------------------------------------------- */

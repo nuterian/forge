@@ -29,9 +29,6 @@ import { DEFAULT_PALETTE, mixHex, type Palette } from '../ui/palette.ts';
 import { Rng } from '../core/rng.ts';
 import { TAU } from '../core/math.ts';
 import { Starfield } from './starfield.ts';
-import { StarPass, streakCue } from '../audio/sky.ts';
-import type { AudioEngine } from '../audio/engine.ts';
-import type { SkyEars } from './starfield.ts';
 
 interface VignetteInk {
   paper: string;
@@ -524,15 +521,6 @@ export class Gallery {
   private readonly swatchStrip: HTMLElement;
   private header!: HTMLElement;
   private readonly sky = new Starfield();
-  private readonly audio: AudioEngine;
-  /**
-   * The stars currently close enough to hear, one per slot the sky offers.
-   * The sky decides which stars those are and where they have got to; this
-   * only turns that into voices and back again.
-   */
-  private readonly passes: Array<StarPass | null> = [null, null];
-  /** Its own stream, so a pass can never disturb the field it came from. */
-  private readonly passRng = new Rng('audio:approach');
   /** rAF timestamp of the previous frame, for the sky's dt. */
   private lastFrame = 0;
 
@@ -543,9 +531,7 @@ export class Gallery {
   private screens: CanvasPattern[] | null = null;
   private screenScale = 0;
 
-  constructor(audio: AudioEngine) {
-    this.audio = audio;
-    this.sky.ears = this.ears;
+  constructor() {
     this.element = document.createElement('div');
     this.element.className = 'gallery';
 
@@ -906,39 +892,8 @@ export class Gallery {
     });
   }
 
-  /**
-   * What the star field tells the audio.
-   *
-   * Written as a field rather than a method so `this` is bound once, at
-   * construction, instead of every frame — `move` runs for every sounding star
-   * on every frame of the index.
-   */
-  private readonly ears: SkyEars = {
-    begin: (slot) => {
-      this.stopPass(slot);
-      const pass = new StarPass(this.audio, this.passRng);
-      this.passes[slot] = pass;
-      this.audio.addVoice(pass);
-    },
-    move: (slot, pan, near) => {
-      this.passes[slot]?.at(pan, near);
-    },
-    end: (slot) => this.stopPass(slot),
-    streak: (pan) => streakCue(this.audio, pan),
-  };
-
-  private stopPass(slot: number): void {
-    const pass = this.passes[slot];
-    if (!pass) return;
-    this.passes[slot] = null;
-    this.audio.stopVoice(pass);
-  }
-
   hide(): void {
     this.element.style.display = 'none';
-    // Every star still sounding goes with the sheet. clearEars() calls back
-    // into `end` for each slot, so nothing is stopped twice.
-    this.sky.clearEars();
     cancelAnimationFrame(this.frameId);
     this.animating = false;
     this.lastFrame = 0;

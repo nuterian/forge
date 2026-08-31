@@ -21,14 +21,7 @@ const FRAME =
   'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"';
 
-/** The speaker body, shared by both volume states. */
-const SPEAKER = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>';
-
 const PATHS: Record<string, string> = {
-  /** volume-2 — the speaker, sounding. */
-  volume: `${SPEAKER}<path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>`,
-  /** volume-x — the speaker, struck out. */
-  'volume-off': `${SPEAKER}<line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>`,
   /** arrow-left — the way back to the index. */
   'arrow-left': '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
   /** refresh-cw — a new seed. */
