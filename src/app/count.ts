@@ -24,17 +24,15 @@ const ENDPOINT = 'https://stats.jugalm.com/api/send';
 /**
  * The Forge's own website id, from the Umami dashboard.
  *
- * Empty until that entry exists. Paste the uuid here and that is the whole
- * change — nothing else in this file or anywhere else needs touching.
+ * Its own entry, deliberately not jugalm.com's: six chapters of hash routes
+ * filed into the personal site would bury its numbers under this one's.
  *
- * While it is empty the bundler folds the guard below, finds the rest of
- * count() unreachable and deletes it: `stats.jugalm.com` does not appear in the
- * built bundle at all. That is the right failure mode rather than an accident.
- * A build with nowhere to report ships no reporting code, so a deploy made
- * before the dashboard entry exists cannot quietly file this site's pageviews
- * under jugalm.com's, and cannot be mistaken for tracking that is switched off.
+ * Emptying this string is also the off switch, and a more thorough one than a
+ * flag. With no id the bundler folds the guard below, finds the rest of count()
+ * unreachable and deletes it — `stats.jugalm.com` stops appearing in the built
+ * bundle at all. A build with nowhere to report ships no reporting code.
  */
-const WEBSITE = '';
+const WEBSITE = '74352d1e-ce43-4516-a754-3501eb445437';
 
 /** Asked not to be counted, in either of the two ways a browser can ask. */
 const optedOut = (): boolean =>
