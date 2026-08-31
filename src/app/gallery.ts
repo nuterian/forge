@@ -545,8 +545,8 @@ export class Gallery {
         <span class="gallery-title-the">The</span>
         <span class="gallery-title-forge">Forge</span>
       </h1>
-      <p class="gallery-subtitle">A generated cosmos — six chapters of fundamental
-      computer graphics, hand-set in WebGL2 and WebGPU and printed in ink.</p>`;
+      <p class="gallery-subtitle">Six chapters of fundamental computer graphics.
+      Every star, world and orbit generated from a seed.</p>`;
     this.header = header;
 
     // The colour bar: the cans open on the press today, as physical chips.

@@ -23,6 +23,12 @@
  *   cpu.raster.clear 0.325 · lines 1.83 · dots 0.80 · triangles 1.03
  *   cpu.chart.frame 1.23 · cpu.kepler 0.64 · cpu.labels 0.009
  *
+ * One later run, on a genuinely quiet machine, came in at or under every one
+ * of those (raster.lines 0.717 · dots 0.350 · triangles 0.550 · kepler 0.550 ·
+ * labels 0.006 · chart.frame 1.00 WITH the instrument plate). Only
+ * cpu.chart.frame is re-budgeted from it below; the rest are left alone rather
+ * than ratcheted on the strength of a single run.
+ *
  * Re-budgeted once since: cpu.chart.frame, when the Star Chart gained its
  * instrument plate. See the note on that entry below.
  */
@@ -42,25 +48,28 @@ export const THRESHOLDS: Record<string, number> = {
   'cpu.raster.lines': 3.7,
   'cpu.raster.dots': 1.6,
   'cpu.raster.triangles': 2.1,
+  // The stroke font, added with the Star Chart's instrument plate. Cheap: 600
+  // glyphs is about 5000 very short Wu lines, and the glyph table is indexed
+  // by character code so nothing allocates. Measured at 0.163ms outside the
+  // browser, which scales to ~0.12ms against the one clean in-browser run
+  // (that run put raster.lines at 0.717ms where the same loop takes 0.954ms in
+  // node, a ratio of 1.33). Budgeted well above that because the figure is
+  // derived; tighten once a clean run measures it directly.
+  'cpu.raster.text': 0.3,
   // Re-budgeted from 2.5 when the Star Chart gained its instrument furniture:
   // the deep-sky stipple, the lettered cartouche, the compass rose and the
-  // rim's degree ticks all landed inside this bench's workload, and they are
-  // real work, not a regression in existing code.
+  // rim's degree ticks all landed inside this bench's workload.
   //
-  // The figure is DERIVED rather than directly measured, which is worth being
-  // plain about. The environment this change was made in could not produce a
-  // trustworthy CPU reading: every GPU row sat exactly on its calibration best
-  // (gpu.sky 0.089 against a recorded 0.089) while every CPU row read three to
-  // four times high — the efficiency-core parking the notes above describe.
-  // So the ratio was taken where it could be taken cleanly, by running the
-  // same rasterizer outside the browser: the identical frame goes 0.61ms to
-  // 0.97ms with the furniture added, stable across runs, a factor of 1.57.
-  // Applied to the recorded 1.23ms calibration best that gives ~1.93ms, and
-  // the file's own rule — roughly twice the best figure — gives 3.9.
-  //
-  // This wants confirming with one clean run on the calibration machine; if
-  // that comes in materially under 1.93ms, tighten this back down.
-  'cpu.chart.frame': 3.9,
+  // It went to 3.9 first, on an estimate, and that was too loose. The estimate
+  // scaled the recorded 1.23ms best by the 1.57x the furniture costs when the
+  // rasterizer is timed outside the browser. What it could not account for is
+  // that the 1.23ms baseline was itself measured on a busy machine: one clean
+  // in-browser run — every other row at or below its recorded best, raster
+  // lines at 0.72ms against a recorded 1.83 — put the furniture-inclusive
+  // frame at 1.00ms. Faster WITH the furniture than the number the old budget
+  // was set from. So this follows the file's own rule against the figure that
+  // was actually measured: twice 1.00, plus a little for a less quiet machine.
+  'cpu.chart.frame': 2.2,
   'cpu.kepler': 1.3,
   'cpu.labels': 0.025,
 };

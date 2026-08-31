@@ -522,6 +522,19 @@ export async function runAllBenches(
       },
     },
     {
+      // The stroke font is a new primitive in a hot path — the cartouche, the
+      // compass points and every degree label go through it — so it gets its
+      // own row rather than hiding inside the chart frame.
+      id: 'cpu.raster.text',
+      name: '600 glyphs, stroke font',
+      reps: 12,
+      fn: () => {
+        for (let row = 0; row < 20; row++) {
+          raster.text(40, 30 + row * 34, 'URANOGRAPHIA 0123 \u00b7 PLATE', 11, line, { alpha: 0.8, aa: true });
+        }
+      },
+    },
+    {
       id: 'cpu.raster.triangles',
       name: '600 AA triangles, ~14px',
       reps: 12,

@@ -40,6 +40,11 @@ uniform float uCloudCover;
 uniform float uCloudDrift;    // radians the cloud deck has drifted
 uniform float uAtmosphere;
 
+// Up to two moons, as world-space centre in xyz and radius in w. A radius of
+// zero means "no moon here", which costs one multiply rather than a branch.
+uniform vec4  uMoonA;
+uniform vec4  uMoonB;
+
 uniform float uRelief;        // runtime bump multiplier
 uniform float uShadeMode;     // 0 banded ink, 1 lambert, 2 blinn-phong
 uniform float uBands;
@@ -109,6 +114,40 @@ vec3 sampleRamp(float t) {
   float boundary = floor(x + 0.5);
   float m = smoothstep(-aa, aa, x - boundary);
   return mix(rampTexel(boundary - 1.0), rampTexel(boundary), m);
+}
+
+/**
+ * How much of the star this moon hides from this fragment.
+ *
+ * A ray-sphere test, done properly rather than faked with a projected disc:
+ * shoot from the surface point toward the light and ask whether it passes
+ * within the moon's radius of the moon's centre. Everything the geometry
+ * should give you falls out of that on its own — the shadow only lands on the
+ * side of the planet the moon is actually in front of, it tracks the moon
+ * rather than sliding with the camera, and it disappears when the moon swings
+ * behind the world instead of casting a shadow through it.
+ *
+ * The result is banded, not smooth: the umbra is one flat ink and the edge
+ * steps down to nothing, which is what every other shadow in this production
+ * does. posterizeSoft keeps the steps from aliasing without turning them into
+ * a blur.
+ */
+float moonShadow(vec4 moon, vec3 surface, vec3 lightDir) {
+  if (moon.w <= 0.0) return 0.0;
+
+  vec3 toMoon = moon.xyz - surface;
+  float along = dot(toMoon, lightDir);
+  // Behind the fragment with respect to the light: it cannot shade anything.
+  if (along <= 0.0) return 0.0;
+
+  // Perpendicular miss distance from the moon's centre to the light ray.
+  float miss2 = dot(toMoon, toMoon) - along * along;
+  float r = moon.w;
+  if (miss2 >= r * r) return 0.0;
+
+  // 1 at the centre of the shadow, 0 at its edge.
+  float depth = 1.0 - sqrt(max(miss2, 0.0)) / r;
+  return posterizeSoft(clamp(depth * 1.7, 0.0, 1.0), 3.0, 0.16);
 }
 
 void main() {
@@ -211,6 +250,18 @@ void main() {
       ? inkShade(uInkShadow, uInkCloud, cloudNdl, max(uBands - 1.0, 2.0), uSoftness)
       : mix(uInkShadow, uInkCloud, clamp(cloudNdl, 0.0, 1.0));
     color = mix(color, cloudColor, cloud * 0.92);
+  }
+
+  // --- moons in transit -----------------------------------------------------
+  // Rare, and entirely a consequence of where the moons actually are. Only on
+  // the lit side: the night side is already the shadow ink, and darkening it
+  // further would just print a hole.
+  float lit = step(0.0, ndl);
+  if (lit > 0.5) {
+    float shade = max(
+      moonShadow(uMoonA, vWorldPos, lightDir),
+      moonShadow(uMoonB, vWorldPos, lightDir));
+    color = mix(color, uInkShadow, shade * 0.82);
   }
 
   // --- atmosphere ---------------------------------------------------------------

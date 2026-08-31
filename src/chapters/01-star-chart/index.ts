@@ -530,6 +530,90 @@ export function create(ctx: ChapterContext): ChapterInstance {
     }
   };
 
+  // -- a shooting star ------------------------------------------------------
+  /**
+   * Roughly every twenty to forty seconds, one meteor. It is drawn per frame
+   * OVER the plate and never into it: the plate is everything that only
+   * changes with the view, and a streak that got baked into the snapshot would
+   * hang in the sky until the next time the camera moved.
+   *
+   * Its own Rng stream, and its own clock, accumulated so the chart's other
+   * settings can never change how often it happens.
+   *
+   * It is aimed inside the current view on purpose. A meteor placed uniformly
+   * on the sphere would be behind you two times in three, which does not make
+   * it rarer so much as it makes it not happen.
+   */
+  const meteorRng = new Rng(`meteor:${ctx.seed}`);
+  const METEOR_LIFE = 0.6;
+  let meteorClock = 0;
+  let meteorNext = meteorRng.range(6, 18); // the first one comes sooner
+  let meteorAge = -1;
+  const meteorStart = vec3.create();
+  const meteorEnd = vec3.create();
+  const meteorHead = vec3.create();
+  const meteorTail = vec3.create();
+
+  const spawnMeteor = (): void => {
+    // The basis is normally refreshed in render(), and this runs in update() —
+    // which on the very first frame means aiming at a basis that is still all
+    // zeros, and normalising that produces a direction that projects nowhere.
+    updateBasis();
+    // A direction inside the frame, then a short arc to travel along it.
+    const spread = Math.min(camera.fov * 0.34, 0.9);
+    const a = meteorRng.range(0, TAU);
+    const r = Math.sqrt(meteorRng.next()) * spread;
+    vec3.copy(meteorStart, basisForward);
+    vec3.scaleAndAdd(meteorStart, meteorStart, basisRight, Math.cos(a) * r);
+    vec3.scaleAndAdd(meteorStart, meteorStart, basisUp, Math.sin(a) * r);
+    vec3.normalize(meteorStart, meteorStart);
+
+    const travel = meteorRng.range(0.09, 0.22) * Math.max(1, camera.fov / (110 * DEG));
+    const dir = meteorRng.range(0, TAU);
+    vec3.copy(meteorEnd, meteorStart);
+    vec3.scaleAndAdd(meteorEnd, meteorEnd, basisRight, Math.cos(dir) * travel);
+    vec3.scaleAndAdd(meteorEnd, meteorEnd, basisUp, Math.sin(dir) * travel);
+    vec3.normalize(meteorEnd, meteorEnd);
+
+    meteorAge = 0;
+  };
+
+  /** Lerp along the meteor's arc and re-normalise back onto the sphere. */
+  const meteorAt = (out: Vec3, t: number): void => {
+    const u = t < 0 ? 0 : t > 1 ? 1 : t;
+    vec3.set(
+      out,
+      meteorStart[0]! + (meteorEnd[0]! - meteorStart[0]!) * u,
+      meteorStart[1]! + (meteorEnd[1]! - meteorStart[1]!) * u,
+      meteorStart[2]! + (meteorEnd[2]! - meteorStart[2]!) * u,
+    );
+    vec3.normalize(out, out);
+  };
+
+  const drawMeteor = (): void => {
+    if (meteorAge < 0) return;
+    const t = meteorAge / METEOR_LIFE;
+    // Brightens as it enters and fades as it burns out, rather than starting
+    // at full and dimming — which is what a meteor actually looks like.
+    const glow = Math.pow(Math.sin(Math.PI * t), 0.7);
+    if (glow <= 0.01) return;
+
+    meteorAt(meteorHead, t);
+    meteorAt(meteorTail, t - 0.45);
+    projectDir(meteorHead, pa);
+    projectDir(meteorTail, pb);
+    if (!pa.visible || !pb.visible) return;
+
+    // The trail, then a brighter length behind the head, then the head: three
+    // Wu lines standing in for a streak that thins along its length.
+    raster.line(pb.x, pb.y, pa.x, pa.y, lineRgb, { alpha: 0.34 * glow, aa: true });
+    raster.line(
+      pb.x + (pa.x - pb.x) * 0.55, pb.y + (pa.y - pb.y) * 0.55,
+      pa.x, pa.y, lineRgb, { alpha: 0.75 * glow, aa: true },
+    );
+    raster.dot(pa.x, pa.y, 1.9, lineRgb, 0.95 * glow, true);
+  };
+
   let twinkleClock = 0;
 
   const drawStars = (): void => {
@@ -649,6 +733,19 @@ export function create(ctx: ChapterContext): ChapterInstance {
   return {
     update(dt) {
       twinkleClock += dt;
+
+      if (meteorAge >= 0) {
+        meteorAge += dt;
+        if (meteorAge > METEOR_LIFE) meteorAge = -1;
+      } else {
+        meteorClock += dt;
+        if (meteorClock >= meteorNext) {
+          meteorClock = 0;
+          meteorNext = meteorRng.range(20, 40);
+          spawnMeteor();
+        }
+      }
+
       labels.visible = settings.names;
     },
 
@@ -706,6 +803,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
       drawStars();
       if (settings.figures) drawFigures();
       drawUserChains();
+      drawMeteor();
 
       blitter.upload(raster);
       blitter.draw();

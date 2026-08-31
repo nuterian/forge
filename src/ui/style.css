@@ -966,8 +966,16 @@ input[type='range']::-moz-range-thumb {
   color: var(--line-faint);
 }
 
-.plate.is-unprinted {
-  cursor: default;
+/* The registration target is the pointer for the WHOLE sheet, plates
+   included. It was only surviving on bare paper: a built plate is an <a>, and
+   the user agent's `pointer` beats an inherited cursor, while an unbuilt one
+   carried an explicit `default` from before there was a cursor worth keeping.
+   Between them they put an ordinary arrow back over two thirds of the page.
+   The plates say what they are without help from the pointer — a built one
+   lifts and inks its border under the cursor, an unbuilt one wears IN PRESS. */
+.gallery .plate,
+.gallery .plate * {
+  cursor: inherit;
 }
 
 .plate.is-unprinted .plate-frame canvas {

@@ -23,6 +23,11 @@ uniform float uReachMax;  // ...and where it is hottest, both in annulus units
 uniform vec2  uSunDir;    // sun direction projected into the billboard plane
 uniform float uSunBias;   // 0 omnidirectional, 1 fully sun-sided
 
+// A prominence: xy is the direction it rises in, z is how far it reaches
+// beyond the ordinary corona, w is how tight the arc is. z of zero is the
+// resting state and costs one smoothstep.
+uniform vec4  uProminence;
+
 in vec2 vLocal;
 
 out vec4 fragColor;
@@ -53,6 +58,17 @@ void main() {
   float sunward = clamp(dot(dir, uSunDir) * 0.5 + 0.5, 0.0, 1.0);
   float phase = mix(0.22, 1.0, smoothstep(0.12, 0.85, sunward));
   float reach = mix(uReachMin, uReachMax, flow) * mix(1.0, phase, uSunBias);
+
+  // A prominence is not a ray and not a flare: it is the same contour field
+  // reaching further in one direction for a few seconds, so it arrives as the
+  // existing bands swelling and stepping outward off the limb. Angular falloff
+  // is measured with a dot product rather than an angle difference — there is
+  // no seam at +-pi to fall into that way.
+  float aligned = dot(dir, uProminence.xy);
+  float arc = smoothstep(1.0 - uProminence.w, 1.0, aligned);
+  // Squared, so the foot of the arc stays tight against the limb while the
+  // crown reaches; a linear falloff reads as the whole side swelling.
+  reach += uProminence.z * arc * arc;
 
   float energy = 1.0 - smoothstep(0.0, reach, d);
   // Three contour bands, one ink — the disk's own limb supplies the hot

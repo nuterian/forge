@@ -254,6 +254,10 @@ export function create(ctx: ChapterContext): ChapterInstance {
   const tmpVec = vec3.create();
   const sunDir = vec3.create();
   const resolution = new Float32Array(2);
+  // The two moons the planet shader can be told about, as world centre + radius.
+  // Scratch at setup scope: the render closure allocates nothing.
+  const moonA = new Float32Array(4);
+  const moonB = new Float32Array(4);
 
   let viewportWidth = ctx.size.width;
   let viewportHeight = ctx.size.height;
@@ -301,6 +305,22 @@ export function create(ctx: ChapterContext): ChapterInstance {
 
     vec3.copy(planetAnchor, planetPosition);
     planetAnchor[1] = planetAnchor[1]! + 1.34;
+
+    // Hand the shader wherever the moons ended up. Nothing here decides
+    // whether a transit happens — the orbits do, and most of the time none is.
+    for (let i = 0; i < 2; i++) {
+      const target = i === 0 ? moonA : moonB;
+      const moon = moonRuntime[i];
+      if (moon) {
+        target[0] = moon.position[0]!;
+        target[1] = moon.position[1]!;
+        target[2] = moon.position[2]!;
+        target[3] = moon.def.radius;
+      } else {
+        target[3] = 0;
+      }
+    }
+
 
     // --- the pivot: planet up close, star from afar ------------------------
     const zoomOut = clamp((camera.distance - 16) / (70 - 16), 0, 1);
@@ -353,6 +373,8 @@ export function create(ctx: ChapterContext): ChapterInstance {
       .set('uBands', settings.bands)
       .set('uSoftness', settings.softness)
       .set('uFilterMode', settings.filterMode)
+      .set('uMoonA', moonA)
+      .set('uMoonB', moonB)
       .setTexture('uRamp', rampTexture, 0)
       .setTexture('uFields', fields.texture, 1);
     applyPlanetUniforms(planetProgram, params, inks);

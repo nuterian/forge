@@ -35,6 +35,15 @@ export interface GlowOptions {
   sunDir?: Vec3;
   /** 0 reaches out evenly, 1 keeps only a rim on the night side. */
   sunBias?: number;
+  /**
+   * A prominence rising off the limb: the angle it rises at, in the
+   * billboard's own plane, and how far past the ordinary corona it reaches.
+   * Omitted or zero-reach means none, which is nearly always.
+   */
+  prominenceAngle?: number;
+  prominenceReach?: number;
+  /** How tight the arc is, 0–1. Larger is narrower. */
+  prominenceArc?: number;
 }
 
 export class GlowBillboard {
@@ -43,6 +52,7 @@ export class GlowBillboard {
   private readonly right = vec3.create();
   private readonly up = vec3.create();
   private readonly sunDir2D = new Float32Array([1, 0]);
+  private readonly prominence = new Float32Array([1, 0, 0, 0.5]);
 
   constructor(gl: WebGL2RenderingContext, name = 'scene.glow') {
     this.program = new Program(gl, billboardVert, glowFrag, name);
@@ -64,6 +74,15 @@ export class GlowBillboard {
       this.sunDir2D[1] = len > 1e-4 ? y / len : 0;
     }
 
+    const reach = options.prominenceReach ?? 0;
+    if (reach > 0) {
+      const angle = options.prominenceAngle ?? 0;
+      this.prominence[0] = Math.cos(angle);
+      this.prominence[1] = Math.sin(angle);
+    }
+    this.prominence[2] = reach;
+    this.prominence[3] = options.prominenceArc ?? 0.06;
+
     this.program
       .use()
       .set('uViewProjection', camera.viewProjection)
@@ -78,7 +97,8 @@ export class GlowBillboard {
       .set('uInk', options.ink)
       .set('uOpacity', options.opacity)
       .set('uSunDir', this.sunDir2D)
-      .set('uSunBias', sunBias);
+      .set('uSunBias', sunBias)
+      .set('uProminence', this.prominence);
     this.quad.draw();
   }
 

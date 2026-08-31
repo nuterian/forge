@@ -186,6 +186,34 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   /** Always runs, even paused — a frozen orrery under a still-simmering sun. */
   let sunClock = 0;
 
+  // -- rare moments ----------------------------------------------------------
+  // Both of these run on their own Rng stream and their own accumulated clock,
+  // so nothing a control does can change how often they happen — and nothing
+  // they do can move a rock in the belt.
+
+  /**
+   * A prominence: every half-minute or so the corona reaches much further in
+   * one direction for a few seconds. Not a ray and not a flare — the corona's
+   * own contour bands, swelling and stepping outward off the limb.
+   */
+  const eventRng = new Rng(`events:${ctx.seed}`);
+  const PROMINENCE_LIFE = 4.5;
+  let promClock = 0;
+  let promNext = eventRng.range(8, 20);
+  let promAge = -1;
+  let promAngle = 0;
+  let promPeak = 0;
+
+  /**
+   * A conjunction: two planets within a couple of degrees of the same
+   * heliocentric longitude. Real geometry, so it happens when it happens.
+   */
+  const CONJUNCTION_DEGREES = 2;
+  const CONJUNCTION_HOLD = 7;
+  let conjA: RuntimeBody | null = null;
+  let conjB: RuntimeBody | null = null;
+  let conjAge = -1;
+
   // -- programs ------------------------------------------------------------
 
   const bodyProgram = new Program(gl, bodyVert, bodyFrag, 'orrery.body');
@@ -395,6 +423,11 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
 
   // -- probe ---------------------------------------------------------------
 
+  // The alignment line: two points, rewritten whenever a conjunction is
+  // running. Built once here so a rare event never allocates a mesh.
+  const alignPoints = new Float32Array(6);
+  const alignMesh = buildPolyline(gl, alignPoints, { closed: false, dynamic: true });
+
   const probe = {
     position: vec3.create(),
     tangent: vec3.create(0, 0, 1),
@@ -404,6 +437,31 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   };
 
   // -- controls ------------------------------------------------------------
+
+  /** Heliocentric longitude in the ecliptic plane, in radians. */
+  const longitudeOf = (body: RuntimeBody): number =>
+    Math.atan2(body.positionAu[2]!, body.positionAu[0]!);
+
+  /**
+   * Look for a pair sharing a longitude. Once one is found it is held for a
+   * few seconds and no other pair can interrupt it — otherwise a crowded inner
+   * system flickers between three callouts a second.
+   */
+  const findConjunction = (): void => {
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        const a = bodies[i]!;
+        const b = bodies[j]!;
+        let delta = longitudeOf(a) - longitudeOf(b);
+        // Wrap into (-pi, pi] before comparing: 359 degrees apart is one.
+        delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+        if (Math.abs(delta) * (180 / Math.PI) <= CONJUNCTION_DEGREES) {
+          setConjunction(a, b);
+          return;
+        }
+      }
+    }
+  };
 
   const dateFormat = new Intl.DateTimeFormat('en-GB', {
     year: 'numeric', month: 'short', day: '2-digit',
@@ -503,10 +561,35 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     if (settings.showProbe) {
       specs.push({ id: 'probe', text: 'Probe', color: inks.hex(0), position: probe.position, priority: 8 });
     }
+    if (conjA && conjB) {
+      specs.push({
+        id: 'conjunction',
+        text: `Conjunction \u00b7 ${conjA.def.name} / ${conjB.def.name}`,
+        color: inks.hex(0),
+        position: conjMid,
+        // Above everything: it is the rarest thing on screen while it lasts.
+        priority: 20,
+      });
+    }
     labels.set(specs);
   };
 
   buildLabels();
+
+  /**
+   * The callout hangs at the midpoint of the pair, updated in place each frame
+   * so the shared label layer can project it like any other name — which also
+   * gets it the layer's priority culling and its opacity fade for free.
+   */
+  const conjMid = vec3.create();
+
+  const setConjunction = (a: RuntimeBody | null, b: RuntimeBody | null): void => {
+    conjA = a;
+    conjB = b;
+    conjAge = a ? 0 : -1;
+    buildLabels();
+  };
+
   let lastMoonVisibility = settings.showMoons;
   let lastProbeVisibility = settings.showProbe;
 
@@ -625,6 +708,49 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       } else if (focusBody) {
         camera.focus(focusBody.position);
       }
+    }
+
+    // --- rare moments -----------------------------------------------------
+    // On sunClock, which never pauses: these are cosmetic, and a paused
+    // orrery should still be a live star.
+    if (promAge >= 0) {
+      promAge += dt;
+      if (promAge > PROMINENCE_LIFE) promAge = -1;
+    } else {
+      promClock += dt;
+      if (promClock >= promNext) {
+        promClock = 0;
+        promNext = eventRng.range(26, 52);
+        promAge = 0;
+        promAngle = eventRng.range(0, TAU);
+        promPeak = eventRng.range(0.28, 0.52);
+      }
+    }
+
+    if (conjAge >= 0) {
+      conjAge += dt;
+      // Hold the midpoint under the callout while the pair drifts apart.
+      vec3.add(conjMid, conjA!.position, conjB!.position);
+      vec3.scale(conjMid, conjMid, 0.5);
+      conjMid[1] = conjMid[1]! + 0.8;
+      // The sightline runs through both bodies and out past them, which is
+      // what makes it read as an alignment rather than as a tether.
+      vec3.sub(tmpVec, conjB!.position, conjA!.position);
+      const span = Math.max(vec3.len(tmpVec), 1e-4);
+      vec3.scale(tmpVec, tmpVec, 1 / span);
+      const overhang = span * 0.35 + 1.2;
+      for (let i = 0; i < 2; i++) {
+        const from = i === 0 ? conjA!.position : conjB!.position;
+        const sign = i === 0 ? -overhang : overhang;
+        alignPoints[i * 3] = from[0]! + tmpVec[0]! * sign;
+        alignPoints[i * 3 + 1] = from[1]! + tmpVec[1]! * sign;
+        alignPoints[i * 3 + 2] = from[2]! + tmpVec[2]! * sign;
+      }
+      updatePolyline(alignMesh, alignPoints, false);
+
+      if (conjAge > CONJUNCTION_HOLD) setConjunction(null, null);
+    } else {
+      findConjunction();
     }
 
     // --- labels -----------------------------------------------------------
@@ -806,9 +932,36 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       }
     }
 
+    // --- the conjunction callout ------------------------------------------
+    // Outside the orbit-traces block on purpose: this is a callout, not an
+    // orbit, and turning the traces off must not leave its label pointing at
+    // nothing. It sets up the shared orbit program itself for the few seconds
+    // it is on screen.
+    if (conjAge >= 0) {
+      const t = conjAge / CONJUNCTION_HOLD;
+      const fade = Math.min(1, Math.min(t, 1 - t) * 6);
+      orbitProgram
+        .use()
+        .set('uViewProjection', camera.viewProjection)
+        .set('uResolution', resolution)
+        .set('uLineWidth', settings.lineWidth * (viewportWidth / Math.max(1, ctx.canvas.clientWidth)))
+        .set('uInk', inks.ink(0))
+        .set('uOpacity', 0.75 * fade)
+        .set('uPhase', 0)
+        .set('uTrail', 0)
+        .set('uDashes', 64);
+      alignMesh.draw();
+    }
+
     // --- corona, additive over everything ---------------------------------
     if (settings.corona > 0.001) {
       beginAdditive(gl);
+      // A prominence rises and falls over its few seconds; sin gives it a
+      // shape that leaves the limb and returns to it rather than snapping off.
+      const promLift = promAge < 0
+        ? 0
+        : Math.sin(Math.PI * (promAge / PROMINENCE_LIFE)) * promPeak;
+
       corona.draw(camera, {
         center: sun.position,
         scale: sun.radius * 3.0,
@@ -816,6 +969,9 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
         ink: inks.ink(plate.corona),
         opacity: settings.corona,
         time: sunClock,
+        prominenceAngle: promAngle,
+        prominenceReach: promLift,
+        prominenceArc: 0.05,
       });
     }
 
@@ -845,6 +1001,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
         body.orbitMesh.dispose();
         body.ringMesh?.dispose();
       }
+      alignMesh.dispose();
       tourMesh?.dispose();
     },
   };
