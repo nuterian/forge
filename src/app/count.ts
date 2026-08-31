@@ -64,8 +64,22 @@ function route(): string {
  */
 let last = '';
 
+/**
+ * The page a report belongs to.
+ *
+ * Needed because one report does not: a dwell time is sent when you leave a
+ * chapter, by which point the address bar and the tab already say the next one.
+ * Filed against those, every "how long did they stay in the Orrery" would be
+ * attached to whatever they opened afterwards. Callers that measure something
+ * about a page they are leaving capture where they were when they started.
+ */
+export interface Where {
+  url: string;
+  title: string;
+}
+
 /** One beacon. Everything reported goes through here, gated once. */
-function send(payload: Record<string, unknown>): void {
+function send(payload: Record<string, unknown>, where?: Where): void {
   // Only the real site, and only real people: a local build, a preview server
   // or an automated run is not a visit.
   if (!WEBSITE) return;
@@ -78,8 +92,8 @@ function send(payload: Record<string, unknown>): void {
       payload: {
         website: WEBSITE,
         hostname: location.hostname,
-        url: route(),
-        title: document.title,
+        url: where ? where.url : route(),
+        title: where ? where.title : document.title,
         referrer: document.referrer,
         screen: `${screen.width}x${screen.height}`,
         language: navigator.language,
@@ -117,7 +131,15 @@ export function count(): void {
  * the report with rows of one and answers nothing. The question worth asking is
  * "do people press reroll at all", not "which of nine thousand skies did they
  * see".
+ *
+ * Numbers are allowed and are not a cardinality problem: Umami stores them in
+ * their own column and the dashboard averages them, which is the only way a
+ * duration is worth anything.
  */
-export function event(name: string, data?: Record<string, string>): void {
-  send(data ? { name, data } : { name });
+export function event(
+  name: string,
+  data?: Record<string, string | number>,
+  where?: Where,
+): void {
+  send(data ? { name, data } : { name }, where);
 }
