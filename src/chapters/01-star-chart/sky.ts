@@ -27,9 +27,48 @@ export interface Constellation {
   centroid: Vec3;
 }
 
+/**
+ * Which inks a given sky prints in. Curated combinations rather than a free
+ * shuffle: the seed picks a *plate*, the way a printer picks which two or
+ * three cans to open, and every one of these reads as a deliberate choice.
+ * Ink 0 is the line ink and belongs to the stars themselves, so the figures
+ * never draw from it — a figure the same colour as the field it crosses is a
+ * figure nobody can follow.
+ */
+export interface SkyInks {
+  /** How the printer would describe the plate; shown on the chart. */
+  name: string;
+  /** Inks the constellation figures and their labels draw from. */
+  figures: number[];
+  /** Inks the tinted field stars draw from. */
+  field: number[];
+  /** The one ink the galactic band's dust prints in. */
+  dust: number;
+}
+
+/**
+ * Five plates.
+ *
+ * They are named for the *relationship* between their inks, not for a
+ * temperature: ink 1 is the brightest accent in every palette, ink 3 is
+ * reliably the odd one out (cyan among embers, gold among blues), so a
+ * 1-against-3 plate stays a strong pairing whichever ink set the reader
+ * chooses, while 1-with-2 stays a close tonal duo in all of them. Every plate
+ * keeps the figures clear of the dust ink so the galactic band never swallows
+ * a constellation.
+ */
+const SKY_INKS: SkyInks[] = [
+  { name: 'Duotone', figures: [1, 2], field: [1, 2], dust: 4 },
+  { name: 'Counterpoint', figures: [1, 3], field: [1, 3], dust: 4 },
+  { name: 'Opposition', figures: [2, 3], field: [2, 3], dust: 4 },
+  { name: 'Wide plate', figures: [1, 3, 4], field: [1, 2, 3, 4], dust: 2 },
+  { name: 'Three colour', figures: [2, 3, 4], field: [1, 3, 4], dust: 1 },
+];
+
 export interface SkyModel {
   stars: CatalogStar[];
   constellations: Constellation[];
+  inks: SkyInks;
 }
 
 /** Same tilt as the Orrery's background sky — it is the same galaxy. */
@@ -49,6 +88,10 @@ function scatterAround(rng: Rng, center: Vec3, spread: number, out: Vec3): Vec3 
 
 export function generateSky(seed: string): SkyModel {
   const rng = new Rng(seed);
+  // The ink plate comes off its own stream, so choosing colours can never
+  // move a star: the layout below draws from `rng` in an order that is fixed
+  // for good, and every draw here would shift it.
+  const inks = new Rng(`ink:${seed}`).pick(SKY_INKS);
   const stars: CatalogStar[] = [];
 
   // --- Field stars ---------------------------------------------------------
@@ -57,7 +100,7 @@ export function generateSky(seed: string): SkyModel {
     stars.push({
       dir: rng.onSphere(vec3.create()) as Vec3,
       mag: rng.power(0.02, 0.75, 2.4),
-      tint: rng.bool(0.16) ? rng.int(1, 4) : -1,
+      tint: rng.bool(0.16) ? rng.pick(inks.field) : -1,
     });
   }
 
@@ -76,7 +119,7 @@ export function generateSky(seed: string): SkyModel {
     stars.push({
       dir: vec3.normalize(dir, dir),
       mag: rng.power(0.02, 0.4, 2.0),
-      tint: rng.bool(0.1) ? 4 : -1,
+      tint: rng.bool(0.1) ? inks.dust : -1,
     });
   }
 
@@ -156,7 +199,7 @@ export function generateSky(seed: string): SkyModel {
       name: constellationName(rng),
       chain,
       branches,
-      inkIndex: rng.int(1, 4),
+      inkIndex: rng.pick(inks.figures),
       centroid,
     });
   }
@@ -171,5 +214,5 @@ export function generateSky(seed: string): SkyModel {
     stars[brightest]!.name = starName(rng);
   }
 
-  return { stars, constellations };
+  return { stars, constellations, inks };
 }

@@ -16,7 +16,15 @@ export interface Palette {
   paper: string;
   /** The deepest shadow ink; used where light does not reach. */
   shadow: string;
-  /** Accent inks, roughly ordered warm → cool. */
+  /**
+   * Accent inks, roughly ordered warm → cool.
+   *
+   * One hard constraint binds every palette: inks 2 → 1 → 0 must run
+   * dark-to-bright. The shared sun shader prints its three-tone fire gradient
+   * (core → hot → flare) from exactly those three, in that order, and a set
+   * that inverts them stops reading as fire from every angle. See StarParams
+   * in chapters/03-worldsmith/planet.ts.
+   */
   inks: string[];
   /** Text/linework ink. */
   line: string;
@@ -46,6 +54,22 @@ export const PALETTES: Palette[] = [
     shadow: '#10233d',
     inks: ['#e6f2f7', '#7ad3e8', '#3f8fc4', '#f2c14e', '#a8b8d8'],
     line: '#e6f2f7',
+  },
+  {
+    id: 'aurora',
+    name: 'Aurora',
+    paper: '#050f0e',
+    shadow: '#0f2830',
+    inks: ['#e9f7ea', '#5fe0a8', '#2f9d8f', '#a07ff0', '#3fb5d6'],
+    line: '#e9f7ea',
+  },
+  {
+    id: 'heliograph',
+    name: 'Heliograph',
+    paper: '#120806',
+    shadow: '#2c1209',
+    inks: ['#fbeccf', '#f0b429', '#b3301f', '#6f9b8f', '#c1697e'],
+    line: '#fbeccf',
   },
 ];
 

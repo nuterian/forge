@@ -38,6 +38,14 @@ export class Shell {
 
   private palette: Palette = DEFAULT_PALETTE;
   private inks: InkSet = new InkSet(DEFAULT_PALETTE);
+  /**
+   * True once the reader has picked inks from the Inks control. Chapters name
+   * a default palette, but that is a *default* — an opening opinion for a first
+   * arrival, not a preference the shell gets to overrule every time the route
+   * changes. Once someone has chosen, their choice outranks every chapter's
+   * suggestion for the rest of the session; reroll and navigation both keep it.
+   */
+  private paletteChosen = false;
 
   private chapter: ChapterInstance | null = null;
   private chapterDef: ChapterDef | null = null;
@@ -218,6 +226,7 @@ export class Shell {
         const next = PALETTES.find((p) => p.id === id);
         if (next) {
           this.palette = next;
+          this.paletteChosen = true;
           this.applyPalette(next);
           // The chapter captured the old inks, so reload it with the new ones.
           void this.loadChapter(this.chapterDef!, this.currentRoute().seed);
@@ -336,7 +345,8 @@ export class Shell {
     // every load starts from the same plate.
     Object.assign(this.print.settings, DEFAULT_PRINT);
 
-    if (def.palette) {
+    // The chapter's own inks, but only until the reader has an opinion.
+    if (def.palette && !this.paletteChosen) {
       const p = PALETTES.find((x) => x.id === def.palette);
       if (p && p.id !== this.palette.id) {
         this.palette = p;

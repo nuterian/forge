@@ -22,6 +22,8 @@ export interface SkyOptions {
   density: number;
   /** How strongly the galactic band prints, 0–1. */
   galaxy: number;
+  /** Palette ink index for the band's dust. Defaults to the cool accent. */
+  dust?: number;
 }
 
 export class SkyPass {
@@ -47,7 +49,7 @@ export class SkyPass {
       .set('uInvViewProjection', this.invViewProjection)
       .set('uCameraPos', camera.position)
       .set('uInkStar', inks.ink(0))
-      .set('uInkDust', inks.ink(4))
+      .set('uInkDust', inks.ink(options.dust ?? 4))
       .set('uPaper', inks.paper)
       .set('uDensity', options.density)
       .set('uGalaxy', options.galaxy);

@@ -107,8 +107,37 @@ interface Settings {
   galaxy: number;
 }
 
+/**
+ * The one thing the seed gets to say about the Orrery.
+ *
+ * This chapter is a portrait of the *real* solar system, so its planets keep
+ * their identity inks — a green Mars would be a lie, and no seed is allowed to
+ * tell it. What the seed can choose is the plate the sky is printed on: which
+ * ink the galactic dust takes, and which of the fire inks the corona flares
+ * in. Both are curated (corona only ever draws from the sun shader's own
+ * gradient, inks 2→1) so no combination can stop the star reading as fire.
+ */
+interface OrreryInks {
+  /** Palette ink for the galactic band's dust. */
+  dust: number;
+  /** Palette ink for the corona — one of the sun's own fire inks. */
+  corona: number;
+}
+
+const ORRERY_INKS: OrreryInks[] = [
+  { dust: 4, corona: 1 }, // the house plate: cool dust under an amber corona
+  { dust: 3, corona: 1 }, // colder dust, same fire
+  { dust: 4, corona: 2 }, // a deeper, embered corona
+  { dust: 2, corona: 1 }, // warm dust: the band prints in the fire ink
+  { dust: 3, corona: 2 }, // cold band, deep fire
+];
+
 export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   const { gl, camera, inks, labels, controls, print } = ctx;
+
+  // Its own stream: the belt, the tour and every orbit are fixed features of
+  // the real system, and none of them may move because the sky changed colour.
+  const plate = new Rng(`ink:${ctx.seed}`).pick(ORRERY_INKS);
 
   // The press wants a slightly finer plate here: the orbit traces are thin and
   // heavy dithering eats them.
@@ -622,7 +651,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
 
     // --- sky: a fullscreen pass behind everything -------------------------
     if (settings.showSky) {
-      sky.draw(camera, inks, { density: 1, galaxy: settings.galaxy });
+      sky.draw(camera, inks, { density: 1, galaxy: settings.galaxy, dust: plate.dust });
     }
 
     beginOpaque(gl);
@@ -784,7 +813,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
         center: sun.position,
         scale: sun.radius * 3.0,
         inner: 1 / 3.0,
-        ink: inks.ink(1),
+        ink: inks.ink(plate.corona),
         opacity: settings.corona,
         time: sunClock,
       });
