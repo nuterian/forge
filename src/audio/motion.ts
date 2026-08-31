@@ -127,9 +127,13 @@ export class CameraMotion implements Voice {
     this.smoothed += (target - this.smoothed) * Math.min(1, dt / Math.max(tau, 1e-3));
     const s = this.smoothed;
 
-    // Below a whisper, write a true zero rather than a very small number: a
-    // camera that has come to rest must leave silence, not a floor.
-    const level = s < 0.02 ? 0 : LEVEL * s * s;
+    // Below a whisper, snap the whole envelope to a true zero rather than
+    // trailing a very small number. Some chapters never quite stop — Worldsmith
+    // tracks a planet that is itself on an orbit, so its camera creeps forever —
+    // and without this the site has a floor instead of silence. Inaudible is
+    // not the same as off, and off is what was asked for.
+    if (s < 0.05) this.smoothed = 0;
+    const level = this.smoothed < 0.05 ? 0 : LEVEL * this.smoothed * this.smoothed;
     this.env.gain.setTargetAtTime(level, now, 0.04);
     this.band!.frequency.setTargetAtTime(300 + s * 1900, now, 0.05);
     this.body!.frequency.setTargetAtTime(70 + s * 40, now, 0.06);

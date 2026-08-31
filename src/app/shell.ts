@@ -39,6 +39,24 @@ const WIPE_SECONDS = 0.5;
 const WARP_OUT_SECONDS = 0.34;
 const WARP_IN_SECONDS = 0.62;
 
+/**
+ * Camera speeds past which the movement did not happen: it was a cut.
+ *
+ * Both are several times faster than the fastest a hand can drag, so a real
+ * gesture never reaches them and a teleport always does.
+ */
+const TELEPORT_ANGULAR = 13;
+const TELEPORT_LINEAR = 130;
+
+/**
+ * How long after a chapter loads the camera belongs to the shell.
+ *
+ * The pivot resets, the chapter frames its shot, and the camera damps into it
+ * over roughly a second. A little longer than that, so the tail of the settle
+ * is silent too.
+ */
+const MOTION_SETTLE_MS = 1400;
+
 /** Where the shell is in that passage. */
 type Phase = 'idle' | 'leaving' | 'arriving';
 
@@ -75,6 +93,20 @@ export class Shell {
   private lastYaw = 0;
   private lastPitch = 0;
   private readonly lastEye = vec3.create();
+  /**
+   * Wall-clock time until which the camera is the shell's to move, not the
+   * reader's.
+   *
+   * Loading a chapter resets the pivot outright and then lets the chapter frame
+   * its own opening shot, which the camera damps into over about a second.
+   * Worldsmith's planet can sit forty units from the origin, so that settle is
+   * a genuine forty-units-per-second flight — and the motion voice, which has
+   * no way of knowing it did not come from a hand on the mouse, sang out at
+   * full level on every single navigation. That is what a reader hears as sound
+   * leaking between demos, and it is not a leak at all: it is the voice doing
+   * exactly what it was told, about a movement nobody made.
+   */
+  private motionSettleUntil = 0;
 
   /**
    * The chapter wipe. Arriving at a chapter pulls the image across the frame
@@ -587,6 +619,9 @@ export class Shell {
       }
 
       instance.resize?.(this.ctx.width, this.ctx.height);
+      // From here the camera flies to wherever the chapter framed it. None of
+      // that is the reader moving, so none of it is heard.
+      this.settleMotion();
     } catch (err) {
       if (token !== this.loadToken) return;
       console.error(err);
@@ -703,6 +738,8 @@ export class Shell {
   private driveMotion(dt: number): void {
     if (dt <= 0) return;
     const cam = this.camera;
+    // A transition is the shell moving the world, not the reader moving in it.
+    const settling = this.phase !== 'idle' || performance.now() < this.motionSettleUntil;
 
     // Wrapped: yaw runs unbounded, and the wrap must not read as a slew.
     let dyaw = cam.yaw - this.lastYaw;
@@ -719,7 +756,30 @@ export class Shell {
 
     const angular = Math.hypot(dyaw, dpitch) / dt;
     const linear = Math.hypot(ex, ey, ez) / dt;
+
+    // A cut is not a movement. Chapters teleport the camera — a reset pivot, a
+    // restored view after a reseed, the probe tour taking the controls — and a
+    // jump of forty units inside one frame reads as thousands of units per
+    // second, which is a bang. Nothing a hand can do comes near these, so
+    // anything past them is a discontinuity and is heard as the silence it is.
+    if (settling || angular > TELEPORT_ANGULAR || linear > TELEPORT_LINEAR) {
+      this.motion.drive(0, 0, 0);
+      return;
+    }
     this.motion.drive(angular, linear, Math.max(-1, Math.min(1, dyaw * 26)));
+  }
+
+  /**
+   * Hand the motion voice a clean slate: this frame's pose becomes the
+   * reference, and nothing is heard until the camera has stopped being flown
+   * somewhere by the shell.
+   */
+  private settleMotion(): void {
+    this.lastYaw = this.camera.yaw;
+    this.lastPitch = this.camera.pitch;
+    vec3.copy(this.lastEye, this.camera.position);
+    this.motionSettleUntil = performance.now() + MOTION_SETTLE_MS;
+    this.motion.drive(0, 0, 0);
   }
 
   /**
