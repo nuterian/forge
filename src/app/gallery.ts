@@ -28,6 +28,7 @@ import type { ChapterDef } from './chapter.ts';
 import { DEFAULT_PALETTE, mixHex, type Palette } from '../ui/palette.ts';
 import { Rng } from '../core/rng.ts';
 import { TAU } from '../core/math.ts';
+import { Starfield } from './starfield.ts';
 
 interface VignetteInk {
   paper: string;
@@ -69,6 +70,34 @@ function inksFor(palette: Palette, colored: boolean): VignetteInk {
 // ---------------------------------------------------------------------------
 // The vignettes, one per chapter.
 // ---------------------------------------------------------------------------
+
+/**
+ * The sky behind a plate. Every built chapter is set in space and every one of
+ * them draws a star field on the real page, so a plate without one reads as a
+ * diagram of the chapter rather than a picture of it.
+ *
+ * Its own Rng stream, keyed by plate: adding draws to the front of a vignette's
+ * shared stream would have shifted every position after it and rearranged
+ * drawings that were already composed.
+ */
+function plateSky(
+  g: CanvasRenderingContext2D, w: number, h: number, t: number,
+  ink: VignetteInk, id: string, count: number,
+): void {
+  const rng = new Rng(`sky-${id}`);
+  for (let i = 0; i < count; i++) {
+    const x = rng.range(0.01, 0.99) * w;
+    const y = rng.range(0.02, 0.98) * h;
+    const r = rng.power(0.35, 1.5, 2.2);
+    const twinkle = 0.45 + 0.55 * Math.sin(t * 1.7 + i * 2.3);
+    g.globalAlpha = (0.16 + rng.next() * 0.34) * (r < 0.9 ? twinkle : 1);
+    g.fillStyle = rng.bool(0.12) ? ink.inks[1]! : ink.line;
+    g.beginPath();
+    g.arc(x, y, r, 0, TAU);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+}
 
 const starChart: Vignette = (g, w, h, t, ink, rng) => {
   // The one motion a star chart has is the sky turning, so the whole plate is
@@ -130,6 +159,8 @@ const orrery: Vignette = (g, w, h, t, ink, rng) => {
   const cx = w / 2;
   const cy = h / 2;
 
+  plateSky(g, w, h, t, ink, 'orrery', 90);
+
   // The sun, with breathing contour lobes.
   for (let band = 3; band >= 1; band--) {
     g.globalAlpha = band === 1 ? 0.9 : 0.16 * band;
@@ -186,6 +217,8 @@ const worldsmith: Vignette = (g, w, h, t, ink, rng) => {
   const cx = w / 2;
   const cy = h / 2;
   const R = Math.min(w, h) * 0.36;
+
+  plateSky(g, w, h, t, ink, 'worldsmith', 110);
 
   // Continents: radial blobs that slide across the disc as the world turns.
   g.save();
@@ -487,6 +520,9 @@ export class Gallery {
 
   private readonly swatchStrip: HTMLElement;
   private header!: HTMLElement;
+  private readonly sky = new Starfield();
+  /** rAF timestamp of the previous frame, for the sky's dt. */
+  private lastFrame = 0;
 
   // Press scratch, allocated once: the colour plate, and the mask that decides
   // how much of it has landed. Both track the tile size.
@@ -540,7 +576,8 @@ export class Gallery {
     colophon.append(this.swatchStrip, editionLine());
 
     sheet.append(header, grid, colophon);
-    this.element.append(sheet);
+    // The sky goes behind everything, including the paper the plates sit on.
+    this.element.append(this.sky.element, sheet);
   }
 
   private buildTile(def: ChapterDef, order: number): HTMLElement {
@@ -745,7 +782,14 @@ export class Gallery {
     if (this.animating) return;
     this.animating = true;
     const tick = (now: number): void => {
-      let busy = false;
+      const dt = this.lastFrame === 0 ? 0.016 : Math.min((now - this.lastFrame) / 1000, 0.05);
+      this.lastFrame = now;
+
+      // The approach runs for as long as the sheet is on screen. The plates do
+      // not: they are struck once and then sit still, and everything below
+      // this is about which of them, if any, still needs redrawing.
+      this.layoutSky();
+      this.sky.frame(dt, this.palette.paper);
 
       if (this.pressStart > 0) {
         let done = true;
@@ -757,23 +801,32 @@ export class Gallery {
           if (!tile.hovered) this.renderTile(tile, flood);
         }
         if (done) this.pressStart = 0;
-        else busy = true;
       }
 
       for (const tile of this.tiles) {
         if (!tile.hovered) continue;
-        busy = true;
         tile.t = tile.hoverBaseT + (now - tile.hoverStart) / 1000;
         this.renderTile(tile, tile.inkable && this.pressStart === 0 ? 1 : this.floodOf(tile, now));
       }
 
-      if (busy && this.element.isConnected && this.element.style.display !== 'none') {
+      if (this.element.isConnected && this.element.style.display !== 'none') {
         this.frameId = requestAnimationFrame(tick);
       } else {
         this.animating = false;
       }
     };
     this.frameId = requestAnimationFrame(tick);
+  }
+
+  /** Track the viewport, and aim the vanishing point at the masthead. */
+  private layoutSky(): void {
+    const rect = this.element.getBoundingClientRect();
+    const title = this.header.getBoundingClientRect();
+    this.sky.resize(
+      rect.width, rect.height,
+      title.left - rect.left + title.width / 2,
+      title.top - rect.top + title.height * 0.42,
+    );
   }
 
   private floodOf(tile: Tile, now: number): number {
@@ -785,6 +838,8 @@ export class Gallery {
   show(palette: Palette): void {
     this.element.style.display = '';
     this.palette = palette;
+    this.sky.setPalette(palette);
+    this.lastFrame = 0;
     this.element.style.cursor = registrationCursor(palette);
     this.paintSwatches();
     this.runMasthead();
@@ -799,6 +854,10 @@ export class Gallery {
     requestAnimationFrame(() => {
       if (reprint) {
         for (const tile of this.tiles) tile.t = REST_T;
+        // The press only runs over plates that can take ink, so the unbuilt
+        // ones have to be struck here — otherwise nothing ever draws them and
+        // they sit blank until a pointer happens to find them.
+        for (const tile of this.tiles) if (!tile.inkable) this.renderTile(tile, 0);
         this.pressStart = performance.now();
         this.ensureAnimating();
       } else if (this.pressStart === 0) {
@@ -807,6 +866,8 @@ export class Gallery {
         // not paint a finished sheet over a press run still in progress.
         for (const tile of this.tiles) this.renderTile(tile, tile.inkable ? 1 : 0);
       }
+      // The sky needs the loop whether or not any plate does.
+      this.ensureAnimating();
     });
   }
 
@@ -835,6 +896,7 @@ export class Gallery {
     this.element.style.display = 'none';
     cancelAnimationFrame(this.frameId);
     this.animating = false;
+    this.lastFrame = 0;
     // Abandoning a half-printed sheet would leave it half-inked on return.
     this.pressStart = 0;
     this.printedIn = null;

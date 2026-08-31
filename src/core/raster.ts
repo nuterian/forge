@@ -313,4 +313,147 @@ export class Raster {
       }
     }
   }
+
+  // -- lettering -----------------------------------------------------------
+
+  /**
+   * Width of `str` at `size` (the cap height, in pixels) — the same number
+   * text() will advance by, so callers can centre and right-align without
+   * drawing first.
+   */
+  measureText(str: string, size: number, tracking = DEFAULT_TRACKING): number {
+    if (str.length === 0) return 0;
+    const unit = size / GLYPH_H;
+    return str.length * (GLYPH_W + tracking) * unit - tracking * unit;
+  }
+
+  /**
+   * Letter `str` with its left edge at x and its cap line at y.
+   *
+   * Allocation-free: the glyph table is indexed by character code, and the
+   * segments are read straight out of it four numbers at a time.
+   */
+  text(
+    x: number, y: number, str: string, size: number, color: RGB,
+    opts: StrokeOptions & { tracking?: number } = {},
+  ): number {
+    const alpha = opts.alpha ?? 1;
+    const aa = opts.aa ?? true;
+    const tracking = opts.tracking ?? DEFAULT_TRACKING;
+    const unit = size / GLYPH_H;
+    const advance = (GLYPH_W + tracking) * unit;
+
+    let cx = x;
+    for (let i = 0; i < str.length; i++) {
+      const glyph = GLYPHS[str.charCodeAt(i)];
+      if (glyph !== undefined) {
+        for (let s = 0; s < glyph.length; s += 4) {
+          this.line(
+            cx + glyph[s]! * unit, y + glyph[s + 1]! * unit,
+            cx + glyph[s + 2]! * unit, y + glyph[s + 3]! * unit,
+            color, { alpha, aa },
+          );
+        }
+      }
+      cx += advance;
+    }
+    return cx - x - tracking * unit;
+  }
+
+  /** As text(), centred on x. */
+  textCentered(
+    x: number, y: number, str: string, size: number, color: RGB,
+    opts: StrokeOptions & { tracking?: number } = {},
+  ): number {
+    const width = this.measureText(str, size, opts.tracking ?? DEFAULT_TRACKING);
+    return this.text(x - width / 2, y, str, size, color, opts);
+  }
 }
+
+// -- a stroke font -----------------------------------------------------------
+
+/**
+ * A hand-cut engraver's alphabet, drawn with the same line primitives as
+ * everything else on the plate.
+ *
+ * There is no font file and no canvas measureText here on purpose: chapter 01
+ * is a software rasterizer, and its own instrument furniture — the cartouche,
+ * the compass points, the degree ticks — should be lettered by the rasterizer
+ * too. Each glyph is a flat list of segments [x0,y0,x1,y1, ...] on a 4-wide,
+ * 6-tall grid with y running down from the cap line, so a glyph is a handful
+ * of numbers and drawing one is a loop over pairs.
+ *
+ * The forms are deliberately a little wrong — the slashed zero, the pinched S,
+ * the wandering diagonals of the numerals — because a plate lettered by hand
+ * should look lettered by hand.
+ */
+const GLYPH_W = 4;
+const GLYPH_H = 6;
+
+const GLYPH_TABLE: Record<string, number[]> = {
+  A: [0, 6, 2, 0, 2, 0, 4, 6, 0.8, 4, 3.2, 4],
+  B: [0, 0, 0, 6, 0, 0, 3, 0, 3, 0, 4, 1.5, 4, 1.5, 3, 3, 0, 3, 3, 3, 3, 3, 4, 4.5, 4, 4.5, 3, 6, 0, 6, 3, 6],
+  C: [4, 1, 3, 0, 3, 0, 1, 0, 1, 0, 0, 1.5, 0, 1.5, 0, 4.5, 0, 4.5, 1, 6, 1, 6, 3, 6, 3, 6, 4, 5],
+  D: [0, 0, 0, 6, 0, 0, 3, 0, 3, 0, 4, 1.5, 4, 1.5, 4, 4.5, 4, 4.5, 3, 6, 0, 6, 3, 6],
+  E: [4, 0, 0, 0, 0, 0, 0, 6, 0, 6, 4, 6, 0, 3, 3, 3],
+  F: [4, 0, 0, 0, 0, 0, 0, 6, 0, 3, 3, 3],
+  G: [4, 1, 3, 0, 3, 0, 1, 0, 1, 0, 0, 1.5, 0, 1.5, 0, 4.5, 0, 4.5, 1, 6, 1, 6, 3, 6, 3, 6, 4, 5, 4, 5, 4, 3.5, 4, 3.5, 2.2, 3.5],
+  H: [0, 0, 0, 6, 4, 0, 4, 6, 0, 3, 4, 3],
+  I: [1, 0, 3, 0, 2, 0, 2, 6, 1, 6, 3, 6],
+  J: [3, 0, 3, 4.5, 3, 4.5, 2, 6, 2, 6, 1, 6, 1, 6, 0, 4.8],
+  K: [0, 0, 0, 6, 4, 0, 0, 3.4, 1.4, 2.4, 4, 6],
+  L: [0, 0, 0, 6, 0, 6, 4, 6],
+  M: [0, 6, 0, 0, 0, 0, 2, 3, 2, 3, 4, 0, 4, 0, 4, 6],
+  N: [0, 6, 0, 0, 0, 0, 4, 6, 4, 6, 4, 0],
+  O: [1, 0, 3, 0, 3, 0, 4, 1.5, 4, 1.5, 4, 4.5, 4, 4.5, 3, 6, 3, 6, 1, 6, 1, 6, 0, 4.5, 0, 4.5, 0, 1.5, 0, 1.5, 1, 0],
+  P: [0, 6, 0, 0, 0, 0, 3, 0, 3, 0, 4, 1.2, 4, 1.2, 4, 2.3, 4, 2.3, 3, 3.5, 3, 3.5, 0, 3.5],
+  Q: [1, 0, 3, 0, 3, 0, 4, 1.5, 4, 1.5, 4, 4.5, 4, 4.5, 3, 6, 3, 6, 1, 6, 1, 6, 0, 4.5, 0, 4.5, 0, 1.5, 0, 1.5, 1, 0, 2.4, 4.4, 4.3, 6.6],
+  R: [0, 6, 0, 0, 0, 0, 3, 0, 3, 0, 4, 1.2, 4, 1.2, 4, 2.3, 4, 2.3, 3, 3.5, 3, 3.5, 0, 3.5, 2.2, 3.5, 4, 6],
+  S: [4, 1, 3, 0, 3, 0, 1, 0, 1, 0, 0, 1.4, 0, 1.4, 1, 2.9, 1, 2.9, 3, 3.1, 3, 3.1, 4, 4.6, 4, 4.6, 3, 6, 3, 6, 1, 6, 1, 6, 0, 5],
+  T: [0, 0, 4, 0, 2, 0, 2, 6],
+  U: [0, 0, 0, 4.5, 0, 4.5, 1, 6, 1, 6, 3, 6, 3, 6, 4, 4.5, 4, 4.5, 4, 0],
+  V: [0, 0, 2, 6, 2, 6, 4, 0],
+  W: [0, 0, 1, 6, 1, 6, 2, 2.5, 2, 2.5, 3, 6, 3, 6, 4, 0],
+  X: [0, 0, 4, 6, 4, 0, 0, 6],
+  Y: [0, 0, 2, 3, 4, 0, 2, 3, 2, 3, 2, 6],
+  Z: [0, 0, 4, 0, 4, 0, 0, 6, 0, 6, 4, 6],
+
+  // The slashed zero is the one flourish the numerals get; on a chart full of
+  // catalogue numbers it is also the useful kind of flourish.
+  '0': [1, 0, 3, 0, 3, 0, 4, 1.5, 4, 1.5, 4, 4.5, 4, 4.5, 3, 6, 3, 6, 1, 6, 1, 6, 0, 4.5, 0, 4.5, 0, 1.5, 0, 1.5, 1, 0, 0.6, 4.8, 3.4, 1.2],
+  '1': [1, 1.2, 2, 0, 2, 0, 2, 6, 1, 6, 3, 6],
+  '2': [0, 1.4, 1, 0, 1, 0, 3, 0, 3, 0, 4, 1.4, 4, 1.4, 0, 6, 0, 6, 4, 6],
+  '3': [0, 0, 4, 0, 4, 0, 2, 2.6, 2, 2.6, 3.2, 2.6, 3.2, 2.6, 4, 4, 4, 4, 3, 6, 3, 6, 1, 6, 1, 6, 0, 5],
+  '4': [3, 6, 3, 0, 3, 0, 0, 4.2, 0, 4.2, 4, 4.2],
+  '5': [4, 0, 0, 0, 0, 0, 0, 2.6, 0, 2.6, 3, 2.6, 3, 2.6, 4, 4, 4, 4, 3.2, 6, 3.2, 6, 1, 6, 1, 6, 0, 5.2],
+  '6': [3.6, 0.6, 2.6, 0, 2.6, 0, 1, 0, 1, 0, 0, 1.6, 0, 1.6, 0, 4.6, 0, 4.6, 1, 6, 1, 6, 3, 6, 3, 6, 4, 4.8, 4, 4.8, 3, 3.4, 3, 3.4, 1, 3.4, 1, 3.4, 0, 4.4],
+  '7': [0, 0, 4, 0, 4, 0, 1.6, 6],
+  '8': [1, 0, 3, 0, 3, 0, 4, 1.2, 4, 1.2, 3, 2.8, 3, 2.8, 1, 2.8, 1, 2.8, 0, 1.2, 0, 1.2, 1, 0, 1, 2.8, 0, 4.4, 0, 4.4, 0, 5, 0, 5, 1, 6, 1, 6, 3, 6, 3, 6, 4, 5, 4, 5, 4, 4.4, 4, 4.4, 3, 2.8],
+  '9': [1, 6, 2.6, 6, 2.6, 6, 4, 4.4, 4, 4.4, 4, 1.4, 4, 1.4, 3, 0, 3, 0, 1, 0, 1, 0, 0, 1.2, 0, 1.2, 0, 2.4, 0, 2.4, 1, 3.2, 1, 3.2, 3, 3.2, 3, 3.2, 4, 2.2],
+
+  '-': [0.6, 3, 3.4, 3],
+  '.': [1.7, 5.7, 2.3, 5.7],
+  ',': [2.2, 5.6, 1.6, 6.6],
+  ':': [1.7, 1.9, 2.3, 1.9, 1.7, 4.3, 2.3, 4.3],
+  "'": [2, 0, 2, 1.6],
+  '/': [0, 6, 4, 0],
+  '+': [2, 1.4, 2, 4.6, 0.6, 3, 3.4, 3],
+  // A degree mark, cut as a small diamond — a ring this size prints as a blob.
+  '\u00b0': [1.4, 0.6, 2, 0, 2, 0, 2.6, 0.6, 2.6, 0.6, 2, 1.2, 2, 1.2, 1.4, 0.6],
+  // A midpoint, for the plate's own punctuation.
+  '\u00b7': [1.7, 3, 2.3, 3],
+  ' ': [],
+};
+
+/**
+ * The table again, indexed by character code. Looking a glyph up by
+ * `str[i]` would allocate a one-character string per glyph per frame; a
+ * charCodeAt into a dense array allocates nothing.
+ */
+const GLYPHS: Array<number[] | undefined> = [];
+for (const ch of Object.keys(GLYPH_TABLE)) GLYPHS[ch.charCodeAt(0)] = GLYPH_TABLE[ch];
+// Lowercase letters print as capitals: the plate has one case.
+for (let code = 97; code <= 122; code++) GLYPHS[code] = GLYPHS[code - 32];
+
+/** Space between glyph boxes, in grid units. */
+const DEFAULT_TRACKING = 1.7;

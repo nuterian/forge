@@ -704,6 +704,19 @@ input[type='range']::-moz-range-thumb {
   cursor: crosshair;
 }
 
+/* The approach: the sheet's own sky, painted every frame behind everything.
+   Fixed rather than absolute so it does not scroll with the sheet — you are
+   moving toward the masthead, not dragging a backdrop around. */
+.gallery-sky {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  z-index: 0;
+}
+
 /* The proof sheet sits dead-centre of the viewport, both axes, via auto
    margins on a flex item — NOT justify-content/align-items center, which
    clip the top of anything taller than the viewport with no way to scroll
@@ -713,6 +726,9 @@ input[type='range']::-moz-range-thumb {
 .gallery-sheet {
   margin: auto;
   width: 100%;
+  /* Above the sky. */
+  position: relative;
+  z-index: 1;
   /* The sheet is as wide as the page allows, but a short window gets a
      narrower one: plate height follows plate width, and on a 720px-tall
      laptop full-width plates make two rows taller than the screen. Trading
