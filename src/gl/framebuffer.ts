@@ -4,13 +4,11 @@
  * the shared grain/dither look gets applied to every chapter identically.
  */
 
+/** RGBA8, linearly filtered; the two knobs are sampling and depth. */
 export interface FramebufferOptions {
   /** 0 disables multisampling. */
   samples?: number;
   depth?: boolean;
-  /** Defaults to gl.RGBA8. Use gl.RGBA16F for HDR chapters. */
-  internalFormat?: number;
-  filter?: number;
 }
 
 export class Framebuffer {
@@ -27,15 +25,11 @@ export class Framebuffer {
 
   private readonly samples: number;
   private readonly useDepth: boolean;
-  private readonly internalFormat: number;
-  private readonly filter: number;
 
   constructor(gl: WebGL2RenderingContext, width: number, height: number, opts: FramebufferOptions = {}) {
     this.gl = gl;
     this.samples = opts.samples ?? 0;
     this.useDepth = opts.depth ?? true;
-    this.internalFormat = opts.internalFormat ?? gl.RGBA8;
-    this.filter = opts.filter ?? gl.LINEAR;
 
     const tex = gl.createTexture();
     const fbo = gl.createFramebuffer();
@@ -73,9 +67,9 @@ export class Framebuffer {
     this.texture = tex;
 
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, this.internalFormat, w, h);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.filter);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.filter);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
@@ -87,7 +81,7 @@ export class Framebuffer {
 
       this.colorRb ??= gl.createRenderbuffer();
       gl.bindRenderbuffer(gl.RENDERBUFFER, this.colorRb);
-      gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.samples, this.internalFormat, w, h);
+      gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.samples, gl.RGBA8, w, h);
       gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, this.colorRb);
 
       if (this.useDepth) {

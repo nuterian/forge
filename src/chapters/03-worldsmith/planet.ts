@@ -153,11 +153,7 @@ function applyFieldUniforms(program: Program, params: PlanetParams): void {
  * clamps in v.
  */
 export function bakePlanetFields(gl: WebGL2RenderingContext, params: PlanetParams): Framebuffer {
-  const target = new Framebuffer(gl, FIELD_MAP_WIDTH, FIELD_MAP_HEIGHT, {
-    samples: 0,
-    depth: false,
-    filter: gl.LINEAR,
-  });
+  const target = new Framebuffer(gl, FIELD_MAP_WIDTH, FIELD_MAP_HEIGHT, { samples: 0, depth: false });
   const program = Program.cached(gl, bakeVert, bakeFrag, 'worldsmith.bake');
   const quad = fullscreenTriangle(gl);
 
