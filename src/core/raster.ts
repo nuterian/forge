@@ -357,7 +357,7 @@ export class Raster {
       }
       cx += advance;
     }
-    return cx - x - tracking * unit;
+    return str.length === 0 ? 0 : cx - x - tracking * unit;
   }
 
   /** As text(), centred on x. */

@@ -25,9 +25,8 @@ import { InkSet, PALETTES } from '../ui/palette.ts';
 import { LabelLayer, type LabelSpec } from '../ui/labels.ts';
 import { generateSky } from '../chapters/01-star-chart/sky.ts';
 import { generateDeepSky } from '../chapters/01-star-chart/deepsky.ts';
-import {
-  applyPlanetUniforms, bakePlanetFields, createRampTexture, generatePlanet,
-} from '../chapters/03-worldsmith/planet.ts';
+import { applyPlanetUniforms, bakePlanetFields, createRampTexture } from '../chapters/03-worldsmith/planet.ts';
+import { generatePlanet } from '../chapters/03-worldsmith/params.ts';
 import { GpuTimer, best, cpuBench, yieldTask, type BenchResult } from './harness.ts';
 
 import planetVert from '../chapters/03-worldsmith/shaders/planet.vert?raw';

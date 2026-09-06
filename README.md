@@ -48,6 +48,12 @@ npm run dev
 `npm run build` typechecks and builds to `dist/`; `npm run typecheck` runs the
 typechecker alone.
 
+`npm test` runs the determinism suite in Node: every seeded generator, the
+Kepler solver, the software rasterizer and the OBJ parser against committed
+fingerprints in `tests/`, so a change that would alter a sky someone has
+already shared fails before it deploys. See `tests/fingerprint.ts` for how a
+fingerprint is taken and what a moved one means.
+
 Chapters are addressed by hash route, and seeds are shareable:
 `#/worldsmith?seed=VELA-2015`.
 

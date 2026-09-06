@@ -35,6 +35,11 @@ jobs:
 
       - run: npm ci
 
+      # The determinism suite: every generator's output for fixed seeds against
+      # committed fingerprints. A shared seed URL is a promise, and a deploy
+      # that would break one does not go out.
+      - run: npm test
+
       # `npm run build` typechecks first, so a type error fails the deploy.
       - run: npm run build
 

@@ -8,9 +8,11 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test tests/*.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^22.20.1",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
   }

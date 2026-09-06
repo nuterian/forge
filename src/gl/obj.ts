@@ -18,37 +18,43 @@ export function parseObj(source: string): GeometryData {
   const uvs: number[] = [];
   const indices: number[] = [];
 
-  // Deduplicate by the raw "v/vt/vn" triple so shared vertices stay shared.
+  // Deduplicate by the *resolved* v/vt/vn triple so shared vertices stay
+  // shared. Resolved, not raw: "1" and "-4" can name the same vertex, and a
+  // cache keyed on the token would emit it twice.
   const cache = new Map<string, number>();
 
   const resolve = (raw: number, list: number[][]): number =>
     raw < 0 ? list.length + raw : raw - 1;
 
   const vertexFor = (token: string): number => {
-    const cached = cache.get(token);
-    if (cached !== undefined) return cached;
-
     const parts = token.split('/');
     const pi = resolve(parseInt(parts[0]!, 10), inPositions);
+    const ti = parts[1] ? resolve(parseInt(parts[1], 10), inUvs) : -1;
+    const ni = parts[2] ? resolve(parseInt(parts[2], 10), inNormals) : -1;
+
+    const key = `${pi}/${ti}/${ni}`;
+    const cached = cache.get(key);
+    if (cached !== undefined) return cached;
+
     const p = inPositions[pi] ?? [0, 0, 0];
     positions.push(p[0]!, p[1]!, p[2]!);
 
-    if (parts[1]) {
-      const t = inUvs[resolve(parseInt(parts[1], 10), inUvs)] ?? [0, 0];
+    if (ti >= 0) {
+      const t = inUvs[ti] ?? [0, 0];
       uvs.push(t[0]!, t[1]!);
     } else {
       uvs.push(0, 0);
     }
 
-    if (parts[2]) {
-      const n = inNormals[resolve(parseInt(parts[2], 10), inNormals)] ?? [0, 1, 0];
+    if (ni >= 0) {
+      const n = inNormals[ni] ?? [0, 1, 0];
       normals.push(n[0]!, n[1]!, n[2]!);
     } else {
       normals.push(0, 0, 0); // filled in by computeNormals() below
     }
 
     const index = positions.length / 3 - 1;
-    cache.set(token, index);
+    cache.set(key, index);
     return index;
   };
 

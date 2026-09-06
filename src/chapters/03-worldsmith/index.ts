@@ -25,7 +25,8 @@ import { meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from '.
 import { SURFACE_STYLE_ID } from '../../scene/body.ts';
 import { GlowBillboard } from '../../scene/glow.ts';
 import { SkyPass } from '../../scene/sky.ts';
-import { applyPlanetUniforms, bakePlanetFields, classifyPlanet, createRampTexture, generatePlanet, generateStar } from './planet.ts';
+import { applyPlanetUniforms, bakePlanetFields, createRampTexture } from './planet.ts';
+import { classifyPlanet, generatePlanet, generateStar } from './params.ts';
 
 import planetVert from './shaders/planet.vert?raw';
 import planetFrag from './shaders/planet.frag?raw';
