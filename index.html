@@ -10,13 +10,39 @@
     />
 
     <link rel="icon" type="image/png" href="./favicon.png" />
+    <link rel="canonical" href="https://jugalm.com/forge/" />
+    <meta name="theme-color" content="#0a0c13" />
+    <meta name="color-scheme" content="dark" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap"
-      rel="stylesheet"
+    <!-- The card a shared link unfurls into. One card for the whole site: the
+         chapters are hash routes, and a seed URL is a state of a page, not a
+         page. The image is drawn by the project's own rasterizer; see
+         tools/make-og.mts. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="The Forge" />
+    <meta property="og:title" content="The Forge — a generated cosmos" />
+    <meta
+      property="og:description"
+      content="Fundamental computer graphics, rendered as space-age print. Six seeded generators built from scratch in WebGL2 and WebGPU."
     />
+    <meta property="og:url" content="https://jugalm.com/forge/" />
+    <meta property="og:image" content="https://jugalm.com/forge/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A seeded star chart with constellation figures, and the title The Forge lettered in a stroke font." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="The Forge — a generated cosmos" />
+    <meta
+      name="twitter:description"
+      content="Fundamental computer graphics, rendered as space-age print. Six seeded generators built from scratch in WebGL2 and WebGPU."
+    />
+    <meta name="twitter:image" content="https://jugalm.com/forge/og.png" />
+
+    <!-- The faces, ahead of the stylesheet that names them, so the first paint
+         is set in them. Self-hosted: see the top of src/ui/style.css. -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="./src/ui/fonts/space-grotesk-latin.woff2" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="./src/ui/fonts/space-mono-400-latin.woff2" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="./src/ui/fonts/space-mono-700-latin.woff2" />
   </head>
   <body>
     <div id="app"></div>

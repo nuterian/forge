@@ -4,6 +4,43 @@
    the interface reprints itself whenever the inks change.
    --------------------------------------------------------------------------- */
 
+/* --- Type --------------------------------------------------------------------- */
+/* Space Grotesk and Space Mono, both SIL Open Font License, served from here
+   rather than from Google. Three reasons, in order: the masthead's entrance is
+   choreographed type, and a face that arrives late from a third origin ran the
+   animation in Helvetica and swapped mid-flight; the counter promises that
+   nothing on this site talks to a third party, and a font request is a request;
+   and two fewer origins on the critical path is faster on every network.
+
+   The files are the latin subsets Google itself serves — one variable file for
+   the display face, two static ones for the mono. Preloaded from index.html,
+   so `block` costs nothing: the fonts land with the stylesheet, and the first
+   frame is set in the right face rather than repainted into it. */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: block;
+  src: url('./fonts/space-grotesk-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('./fonts/space-mono-400-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('./fonts/space-mono-700-latin.woff2') format('woff2');
+}
+
 :root {
   --paper: #0a0c13;
   --shadow: #161b2e;
