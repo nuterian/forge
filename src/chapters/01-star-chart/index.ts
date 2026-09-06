@@ -24,8 +24,13 @@ import {
 
 /** The celestial sphere's world radius — labels live at this distance. */
 const SPHERE_RADIUS = 60;
-/** CPU buffer cap: full canvas resolution is wasted on a stippled chart. */
-const MAX_RASTER_WIDTH = 1500;
+/**
+ * CPU buffer cap, in pixels: full canvas resolution is wasted on a stippled
+ * chart. Capped by area rather than width — 1500×844, the desktop frame the
+ * budget is set on — because a width cap let a portrait tablet at DPR 2 draw,
+ * copy and upload a raster two and a half times that size every frame.
+ */
+const MAX_RASTER_PIXELS = 1500 * 844;
 
 interface Settings {
   antialias: boolean;
@@ -401,7 +406,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
     },
 
     render() {
-      const scale = Math.min(1, MAX_RASTER_WIDTH / width);
+      const scale = Math.min(1, Math.sqrt(MAX_RASTER_PIXELS / (width * height)));
       raster.resize(Math.round(width * scale), Math.round(height * scale));
 
       updateBasis();
