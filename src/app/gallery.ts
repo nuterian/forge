@@ -19,8 +19,9 @@
  * than distinct enough.
  *
  * Every vignette is a small 2D-canvas drawing, deterministic per chapter, so
- * the rested sheet costs one draw per plate and the rAF loop goes idle the
- * moment nothing is moving.
+ * the rested sheet costs one draw per plate. The loop then runs only for the
+ * approach behind it, and not even that when the reader has asked for
+ * reduced motion — a still sheet costs nothing.
  */
 
 import { CHAPTERS } from '../chapters/registry.ts';
@@ -767,7 +768,10 @@ export class Gallery {
     }
   }
 
-  /** Runs while the press is running or a plate is hovered — never otherwise. */
+  /**
+   * Runs while anything moves: the approach, the press run, a hovered plate.
+   * With motion reduced the approach is still, and a sheet at rest stops.
+   */
   private ensureAnimating(): void {
     if (this.animating) return;
     this.animating = true;
@@ -799,10 +803,12 @@ export class Gallery {
         this.renderTile(tile, tile.inkable && this.pressStart === 0 ? 1 : this.floodOf(tile, now));
       }
 
-      if (this.element.isConnected && this.element.style.display !== 'none') {
+      const moving = !this.sky.still || this.pressStart > 0 || this.tiles.some((t) => t.hovered);
+      if (moving && this.element.isConnected && this.element.style.display !== 'none') {
         this.frameId = requestAnimationFrame(tick);
       } else {
         this.animating = false;
+        this.lastFrame = 0;
       }
     };
     this.frameId = requestAnimationFrame(tick);

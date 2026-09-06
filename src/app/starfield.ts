@@ -62,7 +62,8 @@ export class Starfield {
   private streakDx = 0;
   private streakDy = 0;
 
-  private still = false;
+  /** Motion is off: the field is painted once and never moves. */
+  readonly still: boolean;
 
   constructor() {
     this.element = document.createElement('canvas');
