@@ -463,7 +463,6 @@ export class Shell {
         print: this.print,
         labels: this.labels,
         controls: chapterPanel,
-        size: { width: this.ctx.width, height: this.ctx.height },
         seed,
         rng: new Rng(seed),
         isReseed,
@@ -498,7 +497,7 @@ export class Shell {
         );
       }
 
-      instance.resize?.(this.ctx.width, this.ctx.height);
+      instance.resize(this.ctx.width, this.ctx.height);
     } catch (err) {
       if (token !== this.loadToken) return;
       console.error(err);
@@ -562,7 +561,7 @@ export class Shell {
 
     if (resizeToDisplay(this.ctx, rect)) {
       this.framebuffer.resize(this.ctx.width, this.ctx.height);
-      this.chapter?.resize?.(this.ctx.width, this.ctx.height);
+      this.chapter?.resize(this.ctx.width, this.ctx.height);
     }
 
     const aspect = this.ctx.width / Math.max(1, this.ctx.height);
@@ -571,7 +570,7 @@ export class Shell {
     this.advanceTransition();
 
     if (this.chapter) {
-      this.chapter.update(dt, elapsed);
+      this.chapter.update(dt);
 
       this.framebuffer.bind();
       const paper = this.inks.paper;

@@ -23,8 +23,6 @@ export interface ChapterContext {
   labels: LabelLayer;
   /** Chapter-specific controls appear here. */
   controls: ControlPanel;
-  /** Drawing-buffer size in physical pixels. */
-  size: { width: number; height: number };
   /** The seed this chapter was opened with. */
   seed: string;
   /** Already seeded from `seed` — the chapter's one source of randomness. */
@@ -46,10 +44,15 @@ export interface ChapterContext {
 
 export interface ChapterInstance {
   /** Advance simulation. `dt` is clamped seconds. */
-  update(dt: number, elapsed: number): void;
+  update(dt: number): void;
   /** Draw into the currently bound render target. */
   render(): void;
-  resize?(width: number, height: number): void;
+  /**
+   * The drawing buffer's size in physical pixels. Called once right after
+   * create(), before the first frame, and again whenever it changes — so a
+   * chapter learns its size here and nowhere else.
+   */
+  resize(width: number, height: number): void;
   dispose(): void;
 }
 

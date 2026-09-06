@@ -536,8 +536,8 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   const resolution = new Float32Array(2);
   const lightPosition = vec3.create(0, 0, 0);
 
-  let viewportWidth = ctx.size.width;
-  let viewportHeight = ctx.size.height;
+  let viewportWidth = 1;
+  let viewportHeight = 1;
 
   camera.minDistance = 0.25;
   camera.maxDistance = 600;
@@ -565,7 +565,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
 
   // -- update --------------------------------------------------------------
 
-  const update = (dt: number, elapsed: number): void => {
+  const update = (dt: number): void => {
     simDays += dt * settings.timeWarp;
     // Cube root: the warp slider nudges rotation speed without strobing it —
     // and at zero warp a whisper of rotation keeps the paused scene alive.
@@ -691,8 +691,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
         labels.setDetail(body.def.id, `${vec3.len(body.positionAu).toFixed(2)} AU`);
       }
     }
-
-    void elapsed;
   };
 
   // -- render --------------------------------------------------------------

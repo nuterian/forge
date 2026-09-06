@@ -364,11 +364,12 @@ export function create(ctx: ChapterContext): ChapterInstance {
 
   // -- lifecycle ------------------------------------------------------------
 
-  let width = ctx.size.width;
-  let height = ctx.size.height;
-  // The canvas's CSS width, for sizing type. Read on resize only — a layout
-  // measurement has no place in a render loop.
-  let cssWidth = canvas.clientWidth || width;
+  // The drawing-buffer size, and the canvas's CSS width for sizing type. Both
+  // arrive through resize() before the first frame, and are read there only —
+  // a layout measurement has no place in a render loop.
+  let width = 1;
+  let height = 1;
+  let cssWidth = 1;
 
   // The plate: everything that only changes with the *view* — the cleared
   // paper and the graticule, ~1300 projected line segments — baked to a

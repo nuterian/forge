@@ -261,8 +261,8 @@ export function create(ctx: ChapterContext): ChapterInstance {
   const moonA = new Float32Array(4);
   const moonB = new Float32Array(4);
 
-  let viewportWidth = ctx.size.width;
-  let viewportHeight = ctx.size.height;
+  let viewportWidth = 1;
+  let viewportHeight = 1;
 
   // -- update -------------------------------------------------------------------------------
   // Everything cosmetic runs on accumulated clocks, so pace changes retune the

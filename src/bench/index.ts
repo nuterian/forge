@@ -88,6 +88,7 @@ export function create(ctx: ChapterContext): ChapterInstance {
       gl.clearColor(0.04, 0.05, 0.07, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
     },
+    resize() { /* the report is DOM; it lays itself out */ },
     dispose() {
       disposed = true;
       root.remove();
