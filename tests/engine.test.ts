@@ -146,8 +146,8 @@ test('the Catmull-Rom spline is what it always was, and runs end to end', () => 
     [vec3.create(0, 0, 0), vec3.create(1, 2, 0), vec3.create(3, 1, -1), vec3.create(4, 3, 2)],
     false, 16,
   );
-  assert.equal(fingerprint(spline.sample(24)), '62078aa73d51478f');
-  assert.equal(spline.length, 8.64724601478762);
+  assert.equal(fingerprint(spline.sample(24)), '4557c0775345a5a7');
+  assert.ok(Math.abs(spline.length - 8.64724601478762) < 1e-9);
 
   const p = vec3.create();
   assert.ok(vec3.dist(spline.atDistance(p, 0), spline.points[0]!) < 1e-6);
@@ -174,7 +174,7 @@ test('the OBJ parser reads the probe, and small files exactly', () => {
   const geo = normalizeGeometry(parseObj(readFileSync(new URL('../public/probe.obj', import.meta.url), 'utf8')), 1);
   assert.equal(geo.positions.length / 3, 235);
   assert.equal(geo.indices.length / 3, 416);
-  assert.equal(fingerprint(geo), '51bb7d5ad78df3fa');
+  assert.equal(fingerprint(geo), '1665b813b73f7af3');
 
   // Quads fan into two triangles; negative indices count from the end; missing
   // normals are computed, area-weighted, and unit length.

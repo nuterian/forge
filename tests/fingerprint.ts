@@ -13,10 +13,15 @@
  * arrays element by element, objects in their own-key order. Bytes hash
  * directly, so a Raster's whole buffer costs one pass with no serialisation.
  *
- * The hashes are exact for V8. Another engine's Math.sin could differ in the
- * last bit and move them, which is fine — the site and this suite both run on
- * V8, and the question the suite answers is whether *this code* still
- * produces what it produced.
+ * Non-integer numbers are taken to eight significant digits first. The first
+ * run of this suite on GitHub's x86 runner failed one sky that passed on an
+ * arm64 Mac: V8's Math.pow and Math.sin are compiled per architecture, and
+ * the last bit of a transcendental can differ between the two. A star's
+ * magnitude off by one part in 10^16 is not a different sky, and eight digits
+ * is coarse enough that no ulp-level difference can straddle a boundary in
+ * practice while any real change — a draw slipping in, a formula edited —
+ * moves the leading digits and is caught. The same drift exists between
+ * visitors' machines, and is invisible for the same reason.
  */
 
 const FNV_PRIME = 16777619;
@@ -51,7 +56,9 @@ function isTypedArray(v: unknown): v is ArrayLike<number> {
 function walk(h: Hasher, value: unknown): void {
   if (value === null || value === undefined) {
     h.string(String(value));
-  } else if (typeof value === 'number' || typeof value === 'boolean') {
+  } else if (typeof value === 'number') {
+    h.string(Number.isInteger(value) || !Number.isFinite(value) ? String(value) : value.toPrecision(8));
+  } else if (typeof value === 'boolean') {
     h.string(String(value));
   } else if (typeof value === 'string') {
     h.string(JSON.stringify(value));

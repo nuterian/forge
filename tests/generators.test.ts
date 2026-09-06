@@ -32,7 +32,7 @@ test('the seed hash and the Rng stream are bit-exact', () => {
     [rng.next(), rng.next(), rng.next()],
     [0.7980812378227711, 0.1493796636350453, 0.8188047760631889],
   );
-  assert.equal(fingerprint(Array.from({ length: 64 }, () => rng.next())), '99e42cffe8a05b27');
+  assert.equal(fingerprint(Array.from({ length: 64 }, () => rng.next())), 'ef19376f198a7e4f');
 
   // A numeric seed of zero must not produce a dead generator.
   const zero = new Rng(0);
@@ -48,13 +48,13 @@ test('the sky catalogue is what it always was', () => {
   assert.equal(vela.stars.length, 3862);
   assert.equal(vela.constellations.length, 10);
   assert.equal(vela.inks.name, 'Duotone');
-  assert.equal(fingerprint(vela), 'bda301cca78f5e84');
+  assert.equal(fingerprint(vela), '9fec88d5f355694d');
 
   const arc = generateSky('ARC-0001');
   assert.equal(arc.stars.length, 3874);
   assert.equal(arc.constellations.length, 12);
   assert.equal(arc.inks.name, 'Wide plate');
-  assert.equal(fingerprint(arc), '9623ea2c6038328c');
+  assert.equal(fingerprint(arc), '9a924a3a563b3392');
 });
 
 test('the sky is well-formed for any seed', () => {
@@ -82,12 +82,12 @@ test('the sky is well-formed for any seed', () => {
 test('deep-sky objects are what they always were', () => {
   const vela = generateDeepSky('VELA-2015');
   assert.deepEqual(vela.map((o) => o.kind), ['cluster']);
-  assert.equal(fingerprint(vela), '1e7657d1ae229f19');
+  assert.equal(fingerprint(vela), '7c60359920316f49');
 
   // ARC-0001 grows a comet, so the rarest builder is covered too.
   const arc = generateDeepSky('ARC-0001');
   assert.deepEqual(arc.map((o) => o.kind), ['cluster', 'comet']);
-  assert.equal(fingerprint(arc), '701cf76a1f93d41a');
+  assert.equal(fingerprint(arc), '5cdd59f67592aad6');
 
   for (const object of [...vela, ...arc]) {
     assert.equal(object.points.length, object.radii.length * 3);
@@ -111,12 +111,12 @@ test('the star and its world are what they always were', () => {
   assert.equal(velaSystem.planet.moons.length, 1);
   assert.equal(velaSystem.planet.rings, null);
   assert.equal(classifyPlanet(velaSystem.planet), 'temperate world');
-  assert.equal(fingerprint(velaSystem), '86ea814489ddf224');
+  assert.equal(fingerprint(velaSystem), '8328a0c88d9fce70');
 
   const arc = new Rng('ARC-0001');
   const arcSystem = { star: generateStar(arc), planet: generatePlanet(arc) };
   assert.equal(arcSystem.planet.name, 'Irio');
-  assert.equal(fingerprint(arcSystem), '78d89605a916f6cd');
+  assert.equal(fingerprint(arcSystem), '74a17df4737ae264');
 });
 
 test('every world is plausible', () => {
