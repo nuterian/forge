@@ -22,28 +22,39 @@ import { event } from './count.ts';
 import { CHAPTERS, findChapter } from '../chapters/registry.ts';
 import type { ChapterDef, ChapterInstance } from './chapter.ts';
 
-/** How long the ink takes to cross the frame when a chapter arrives. */
-const WIPE_SECONDS = 0.5;
 /**
  * The passage between chapters.
  *
  * Leaving, the chapter you are in is dragged outward through the press and
  * floods to paper; arriving, the new one comes in out of the same drag and
- * settles. The two halves are deliberately lopsided — you leave faster than
+ * prints. The two halves are deliberately lopsided — you leave faster than
  * you arrive, which is what makes it read as travelling *to* somewhere rather
- * than as a symmetrical wipe.
+ * than as a symmetrical wipe. Both are the print pass's uWarp and uReveal
+ * (see post.frag), driven from one clock below.
  */
 const WARP_OUT_SECONDS = 0.34;
 const WARP_IN_SECONDS = 0.62;
-
-/** Where the shell is in that passage. */
-type Phase = 'idle' | 'leaving' | 'arriving';
+/** Within the arrival, how long the ink takes to cross the frame. */
+const WIPE_SECONDS = 0.5;
 
 interface Route {
   /** Empty string routes to the gallery index. */
   chapterId: string;
   seed: string;
 }
+
+/**
+ * Where the shell is in that passage, or null at rest.
+ *
+ * Timed on the wall clock, not accumulated from the frame's dt: the loop
+ * clamps dt so a stalled tab cannot blow up the simulation, which is right
+ * for the simulation and wrong for a transition with a fixed duration —
+ * under frame starvation it would take as many *frames* as it wanted rather
+ * than a third of a second, and could sit half-printed indefinitely.
+ */
+type Transition =
+  | { phase: 'leaving'; start: number; route: Route }
+  | { phase: 'arriving'; start: number };
 
 export class Shell {
   private readonly root: HTMLElement;
@@ -55,28 +66,10 @@ export class Shell {
   private loop!: Loop;
 
   /**
-   * The chapter wipe. Arriving at a chapter pulls the image across the frame
-   * through the print pass's ordered screen (see uReveal in post.frag); a
-   * reroll does not, because a reroll changes the content and not the view,
-   * and wiping there reads as a glitch rather than as a page turn.
+   * The passage in progress. A reroll never starts one: a reroll changes the
+   * content and not the view, and a page turn there reads as a glitch.
    */
-  private reveal = 1;
-  /**
-   * When the wipe started, on the wall clock.
-   *
-   * Not accumulated from the frame's dt: the loop clamps dt so a stalled tab
-   * cannot blow up the simulation, which is right for the simulation and wrong
-   * for a transition with a fixed duration — under any frame starvation the
-   * wipe would then take as many *frames* as it wanted rather than half a
-   * second, and could sit half-printed indefinitely. Elapsed time is what a
-   * half-second transition is actually a function of.
-   */
-  private revealStart = 0;
-
-  private phase: Phase = 'idle';
-  private phaseStart = 0;
-  /** The route the current departure is headed for. */
-  private pendingRoute: Route | null = null;
+  private transition: Transition | null = null;
 
   private palette: Palette = DEFAULT_PALETTE;
   private inks: InkSet = new InkSet(DEFAULT_PALETTE);
@@ -332,9 +325,7 @@ export class Shell {
     // with the chapter you are leaving still on screen being dragged out of
     // frame. commitRoute() runs when it finishes.
     if (!isReseed && this.chapter !== null) {
-      this.pendingRoute = route;
-      this.phase = 'leaving';
-      this.phaseStart = performance.now();
+      this.transition = { phase: 'leaving', start: performance.now(), route };
       return;
     }
 
@@ -343,12 +334,8 @@ export class Shell {
 
   /** Actually go: swap the page over, and start the arrival if there is one. */
   private async commitRoute(route: Route): Promise<void> {
-    this.pendingRoute = null;
-
     if (!route.chapterId) {
-      this.phase = 'idle';
-      this.print.warp = 0;
-      this.reveal = 1;
+      this.settle();
       this.showGallery();
       return;
     }
@@ -362,9 +349,7 @@ export class Shell {
     this.hideGallery();
 
     if (!def.available) {
-      this.phase = 'idle';
-      this.print.warp = 0;
-      this.reveal = 1;
+      this.settle();
       this.updateChrome(def);
       this.disposeChapter();
       this.showComingSoon(def);
@@ -492,12 +477,7 @@ export class Shell {
       // Start the arrival on the chapter's first frame rather than when the
       // navigation began: a chapter is a dynamic import, and a transition that
       // ran during the fetch would be over before there was anything to show.
-      if (!isReseed) {
-        this.reveal = 0;
-        this.revealStart = performance.now();
-        this.phase = 'arriving';
-        this.phaseStart = performance.now();
-      }
+      if (!isReseed) this.transition = { phase: 'arriving', start: performance.now() };
       // A chapter loaded, so whatever the browser is holding is current. Spend
       // the stale-build reload again if a *later* deploy strands this session.
       try { sessionStorage.removeItem('forge:reloaded-for-stale-build'); } catch { /* no-op */ }
@@ -586,11 +566,6 @@ export class Shell {
 
     this.advanceTransition();
 
-    if (this.reveal < 1) {
-      this.reveal = Math.min(1, (performance.now() - this.revealStart) / (WIPE_SECONDS * 1000));
-    }
-    this.print.reveal = this.reveal;
-
     if (this.chapter) {
       this.chapter.update(dt, elapsed);
 
@@ -613,43 +588,41 @@ export class Shell {
     this.chapterPanel?.refresh();
   }
 
-  /**
-   * Run the departure and the arrival. Both are read off the wall clock rather
-   * than accumulated from the frame's dt, for the same reason the wipe is: the
-   * loop clamps dt, and a transition with a fixed duration that counts frames
-   * instead of seconds can sit stranded halfway on a starved tab.
-   */
-  private advanceTransition(): void {
-    if (this.phase === 'idle') return;
-    const elapsed = (performance.now() - this.phaseStart) / 1000;
+  /** At rest: no passage running, the press printing plainly. */
+  private settle(): void {
+    this.transition = null;
+    this.print.warp = 0;
+    this.print.reveal = 1;
+  }
 
-    if (this.phase === 'leaving') {
+  /** Run the departure or the arrival, whichever is in progress. */
+  private advanceTransition(): void {
+    const tr = this.transition;
+    if (!tr) return;
+    const elapsed = (performance.now() - tr.start) / 1000;
+
+    if (tr.phase === 'leaving') {
       const t = Math.min(1, elapsed / WARP_OUT_SECONDS);
-      // Accelerating away: cubed, so it creeps and then goes.
+      // Accelerating away: cubed, so it creeps and then goes — while the
+      // ink lifts off the page at the same time.
       this.print.warp = t * t * t;
-      this.reveal = 1 - t;
-      this.print.reveal = this.reveal;
+      this.print.reveal = 1 - t;
       if (t >= 1) {
-        const route = this.pendingRoute;
-        this.phase = 'idle';
-        // Hold the frame at paper through the load so nothing flashes between
-        // the chapter that left and the one still being fetched.
-        this.print.warp = 1;
-        this.reveal = 0;
-        this.print.reveal = 0;
-        if (route) void this.commitRoute(route);
+        // The press is left at full drag and bare paper through the load, so
+        // nothing flashes between the chapter that left and the one still
+        // being fetched; the arrival starts from there.
+        this.transition = null;
+        void this.commitRoute(tr.route);
       }
       return;
     }
 
-    // Arriving: decelerating in, which is the opposite easing to the way out.
+    // Arriving: decelerating in, the opposite easing to the way out, while
+    // the ink crosses the frame on its own shorter clock.
     const t = Math.min(1, elapsed / WARP_IN_SECONDS);
-    const eased = 1 - Math.pow(1 - t, 3);
-    this.print.warp = 1 - eased;
-    if (t >= 1) {
-      this.phase = 'idle';
-      this.print.warp = 0;
-    }
+    this.print.warp = Math.pow(1 - t, 3);
+    this.print.reveal = Math.min(1, elapsed / WIPE_SECONDS);
+    if (t >= 1) this.transition = null;
   }
 
   // -- notices -------------------------------------------------------------
