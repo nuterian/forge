@@ -363,6 +363,9 @@ export class Shell {
     this.disposeChapter();
     this.clearNotice();
     this.chapterDef = null;
+    // The sheet covers the stage and runs its own loop; ours would spend a
+    // layout read and a camera update a frame on a canvas nobody can see.
+    this.loop.stop();
     this.hud.style.display = 'none';
     this.labels.element.style.display = 'none';
     if (!this.gallery) {
@@ -374,6 +377,7 @@ export class Shell {
 
   private hideGallery(): void {
     this.gallery?.hide();
+    this.loop.start();
     this.hud.style.display = '';
     this.labels.element.style.display = '';
   }
