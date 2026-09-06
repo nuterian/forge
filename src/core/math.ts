@@ -21,6 +21,23 @@ export const smoothstep = (e0: number, e1: number, x: number) => {
 export const damp = (a: number, b: number, rate: number, dt: number) =>
   lerp(a, b, 1 - Math.pow(rate, dt));
 
+/**
+ * The 8×8 ordered-dither screen, thresholds 0–63 row-major. The same matrix
+ * ink.glsl's bayer8() builds by bit-interleaving; on the CPU it is cheaper to
+ * write down. Everything printed in the project — the post pass, the proof
+ * sheet's flood, the nebulae's stipple — breaks up against this one screen.
+ */
+export const BAYER8 = [
+   0, 32,  8, 40,  2, 34, 10, 42,
+  48, 16, 56, 24, 50, 18, 58, 26,
+  12, 44,  4, 36, 14, 46,  6, 38,
+  60, 28, 52, 20, 62, 30, 54, 22,
+   3, 35, 11, 43,  1, 33,  9, 41,
+  51, 19, 59, 27, 49, 17, 57, 25,
+  15, 47,  7, 39, 13, 45,  5, 37,
+  63, 31, 55, 23, 61, 29, 53, 21,
+];
+
 // ---------------------------------------------------------------------------
 // vec3
 // ---------------------------------------------------------------------------
