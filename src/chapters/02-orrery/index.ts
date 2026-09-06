@@ -49,6 +49,27 @@ const LUNA_DISTANCE_KM = 384400;
 /** Points sampled per orbit trace. */
 const ORBIT_SAMPLES = 384;
 
+// The tuned defaults. The panel below exposes time, where to look, how it is
+// shaded and two visibility switches; everything else is a number decided
+// once, here, and never a control.
+/**
+ * True distances are unviewable — Neptune is thirty times Earth's orbit, and
+ * the planets themselves are specks at that scale. Compressing the radius by
+ * a power keeps the *ordering* and the ellipses honest while making the
+ * system fit on one page. 1.0 would be the real thing.
+ */
+const COMPRESSION = 0.5;
+const ORBIT_SCALE = 8;
+const BODY_SCALE = 0.5;
+/** Ink steps across a lit hemisphere, and how hard the terminator is. */
+const BANDS = 4;
+const SOFTNESS = 0.06;
+const PATTERN = 0.55;
+/** Orbit ribbons, in CSS pixels. */
+const LINE_WIDTH = 1.6;
+const CORONA = 0.55;
+const GALAXY = 0.6;
+
 interface RuntimeMoon {
   def: MoonDef;
   position: Vec3;
@@ -75,36 +96,18 @@ interface RuntimeBody {
   /** Visual spin rate, revolutions per clock second. Negative = retrograde. */
   spinRate: number;
   moons: RuntimeMoon[];
-  /** Orbit trace sampled in AU; rebuilt into world space when scales change. */
-  orbitAu: Float32Array;
   orbitMesh: Mesh;
   ringMesh: Mesh | null;
   tilt: Mat4;
 }
 
+/** What the panel can change. */
 interface Settings {
   timeWarp: number;
-  compression: number;
-  orbitScale: number;
-  bodyScale: number;
-  moonScale: number;
   showOrbits: boolean;
-  showBelt: boolean;
-  showMoons: boolean;
-  showRings: boolean;
   showLabels: boolean;
-  showProbe: boolean;
-  showSky: boolean;
-  dashedOrbits: boolean;
   shadeMode: number;
-  bands: number;
-  softness: number;
-  pattern: number;
   focus: string;
-  tourSpeed: number;
-  lineWidth: number;
-  corona: number;
-  galaxy: number;
 }
 
 /**
@@ -146,27 +149,10 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
 
   const settings: Settings = {
     timeWarp: 6,
-    compression: 0.5,
-    orbitScale: 8,
-    bodyScale: 0.5,
-    moonScale: 1,
     showOrbits: true,
-    showBelt: true,
-    showMoons: true,
-    showRings: true,
     showLabels: true,
-    showProbe: true,
-    showSky: true,
-    dashedOrbits: false,
     shadeMode: 0,
-    bands: 4,
-    softness: 0.06,
-    pattern: 0.55,
     focus: 'none',
-    tourSpeed: 1,
-    lineWidth: 1.6,
-    corona: 0.55,
-    galaxy: 0.6,
   };
 
   let simDays = daysFromDate(new Date());
@@ -235,13 +221,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
 
   // -- scale helpers -------------------------------------------------------
 
-  /**
-   * True distances are unviewable — Neptune is thirty times Earth's orbit, and
-   * the planets themselves are specks at that scale. Compressing the radius by
-   * a power keeps the *ordering* and the ellipses honest while making the
-   * system fit on one page. Slide compression to 1.0 to see the real thing.
-   */
-  const scaleAu = (au: number): number => Math.pow(au, settings.compression) * settings.orbitScale;
+  const scaleAu = (au: number): number => Math.pow(au, COMPRESSION) * ORBIT_SCALE;
 
   const worldFromAu = (out: Vec3, au: Vec3): Vec3 => {
     const r = vec3.len(au);
@@ -256,17 +236,17 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
    * the ordering — Jupiter still plainly dwarfs Mercury.
    */
   const bodyRadius = (radiusKm: number): number =>
-    Math.pow(radiusKm / EARTH_RADIUS_KM, 0.45) * settings.bodyScale;
+    Math.pow(radiusKm / EARTH_RADIUS_KM, 0.45) * BODY_SCALE;
 
   /**
    * The sun is 109 Earth radii and breaks any curve that flatters the planets,
    * so it gets its own scale — sized to stay the largest object in frame
    * without swallowing Mercury's orbit.
    */
-  const sunRadius = (): number => settings.bodyScale * 3.6;
+  const sunRadius = (): number => BODY_SCALE * 3.6;
 
   const moonDistance = (km: number, planetRadius: number): number =>
-    planetRadius * 1.75 + Math.pow(km / LUNA_DISTANCE_KM, 0.5) * 0.85 * settings.moonScale;
+    planetRadius * 1.75 + Math.pow(km / LUNA_DISTANCE_KM, 0.5) * 0.85;
 
   // -- bodies --------------------------------------------------------------
 
@@ -280,17 +260,20 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   const bodies: RuntimeBody[] = PLANETS.map((def) => {
     // Sample the orbit by mean anomaly, so the parameter along the trace is
     // linear in *time* — which is what lets the fragment shader fade the trail
-    // behind the planet correctly.
-    const orbitAu = new Float32Array(ORBIT_SAMPLES * 3);
-    const p = vec3.create();
+    // behind the planet correctly. Straight into world space: the scales are
+    // fixed, so the trace never needs rebuilding.
+    const orbit = new Float32Array(ORBIT_SAMPLES * 3);
+    const au = vec3.create();
+    const world = vec3.create();
     for (let i = 0; i < ORBIT_SAMPLES; i++) {
-      positionAtAnomaly(p, def.elements, (i / ORBIT_SAMPLES) * TAU);
-      orbitAu[i * 3] = p[0]!;
-      orbitAu[i * 3 + 1] = p[1]!;
-      orbitAu[i * 3 + 2] = p[2]!;
+      positionAtAnomaly(au, def.elements, (i / ORBIT_SAMPLES) * TAU);
+      worldFromAu(world, au);
+      orbit[i * 3] = world[0]!;
+      orbit[i * 3 + 1] = world[1]!;
+      orbit[i * 3 + 2] = world[2]!;
     }
 
-    const orbitMesh = buildPolyline(gl, orbitAu, { closed: true, dynamic: true });
+    const orbitMesh = buildPolyline(gl, orbit, { closed: true });
 
     const ringMesh = def.rings
       ? toMesh(gl, ringAnnulus(def.rings.inner, def.rings.outer, 192))
@@ -304,7 +287,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       model: mat4.create(),
       normalMatrix: mat3.create(),
       phase: 0,
-      orbitAu,
       orbitMesh,
       ringMesh,
       tilt: mat4.fromXRotation(mat4.create(), def.axialTilt * DEG),
@@ -326,25 +308,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       })),
     };
   });
-
-  /** Rebuild every orbit trace in world space. Called when a scale changes. */
-  const scratchOrbit = new Float32Array(ORBIT_SAMPLES * 3);
-  const rebuildOrbits = (): void => {
-    const au = vec3.create();
-    const world = vec3.create();
-    for (const body of bodies) {
-      for (let i = 0; i < ORBIT_SAMPLES; i++) {
-        vec3.set(au, body.orbitAu[i * 3]!, body.orbitAu[i * 3 + 1]!, body.orbitAu[i * 3 + 2]!);
-        worldFromAu(world, au);
-        scratchOrbit[i * 3] = world[0]!;
-        scratchOrbit[i * 3 + 1] = world[1]!;
-        scratchOrbit[i * 3 + 2] = world[2]!;
-      }
-      updatePolyline(body.orbitMesh, scratchOrbit, true);
-    }
-  };
-
-  rebuildOrbits();
 
   // -- asteroid belt -------------------------------------------------------
   // One draw call. Every rock's orbit lives in these two instance attributes
@@ -542,26 +505,22 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
         position: body.position,
         priority: 5,
       });
-      if (settings.showMoons) {
-        for (const moon of body.moons) {
-          specs.push({
-            id: moon.def.id,
-            text: moon.def.name,
-            color: inks.hex(moon.def.inkIndex),
-            position: moon.position,
-            priority: 1,
-            // Moons only earn a label when you are close enough to see them.
-            maxDistance: 14,
-            // ...and not while the planet itself is in the way. body.position
-            // is the same live vector the scene graph writes each frame.
-            occluder: { center: body.position, radius: body.radius },
-          });
-        }
+      for (const moon of body.moons) {
+        specs.push({
+          id: moon.def.id,
+          text: moon.def.name,
+          color: inks.hex(moon.def.inkIndex),
+          position: moon.position,
+          priority: 1,
+          // Moons only earn a label when you are close enough to see them.
+          maxDistance: 14,
+          // ...and not while the planet itself is in the way. body.position
+          // is the same live vector the scene graph writes each frame.
+          occluder: { center: body.position, radius: body.radius },
+        });
       }
     }
-    if (settings.showProbe) {
-      specs.push({ id: 'probe', text: 'Probe', color: inks.hex(0), position: probe.position, priority: 8 });
-    }
+    specs.push({ id: 'probe', text: 'Probe', color: inks.hex(0), position: probe.position, priority: 8 });
     if (conjA && conjB) {
       specs.push({
         id: 'conjunction',
@@ -590,9 +549,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     conjAge = a ? 0 : -1;
     buildLabels();
   };
-
-  let lastMoonVisibility = settings.showMoons;
-  let lastProbeVisibility = settings.showProbe;
 
   // -- scratch -------------------------------------------------------------
 
@@ -679,11 +635,9 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     }
 
     // --- the probe on its spline -----------------------------------------
-    if (settings.tourSpeed > 0) {
-      // Arc-length parameterised, so speed is constant regardless of how far
-      // apart the waypoints happen to be.
-      tourU = (tourU + (dt * settings.tourSpeed) / 90) % 1;
-    }
+    // Arc-length parameterised, so speed is constant regardless of how far
+    // apart the waypoints happen to be.
+    tourU = (tourU + dt / 90) % 1;
     tourSpline.atDistance(probe.position, tourU);
     tourSpline.tangentAt(probe.tangent, tourU);
 
@@ -756,11 +710,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
 
     // --- labels -----------------------------------------------------------
     labels.visible = settings.showLabels;
-    if (lastMoonVisibility !== settings.showMoons || lastProbeVisibility !== settings.showProbe) {
-      lastMoonVisibility = settings.showMoons;
-      lastProbeVisibility = settings.showProbe;
-      buildLabels();
-    }
     if (settings.showLabels) {
       for (const body of bodies) {
         labels.setDetail(body.def.id, `${vec3.len(body.positionAu).toFixed(2)} AU`);
@@ -777,9 +726,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     resolution[1] = viewportHeight;
 
     // --- sky: a fullscreen pass behind everything -------------------------
-    if (settings.showSky) {
-      sky.draw(camera, inks, { density: 1, galaxy: settings.galaxy, dust: plate.dust });
-    }
+    sky.draw(camera, inks, { density: 1, galaxy: GALAXY, dust: plate.dust });
 
     beginOpaque(gl);
 
@@ -808,10 +755,10 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       .set('uLightPos', lightPosition)
       .set('uCameraPos', camera.position)
       .set('uInkShadow', inks.shadow)
-      .set('uBands', settings.bands)
-      .set('uSoftness', settings.softness)
+      .set('uBands', BANDS)
+      .set('uSoftness', SOFTNESS)
       .set('uShadeMode', settings.shadeMode)
-      .set('uPattern', settings.pattern);
+      .set('uPattern', PATTERN);
 
     for (const body of bodies) {
       bodyProgram
@@ -824,83 +771,75 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       planetMesh.draw();
     }
 
-    if (settings.showMoons) {
-      bodyProgram.set('uAtmosphere', 0).set('uStyle', SURFACE_STYLE_ID.rocky);
-      for (const body of bodies) {
-        for (const moon of body.moons) {
-          bodyProgram
-            .set('uModel', moon.model)
-            .set('uNormalMatrix', moon.normalMatrix)
-            .set('uInkBase', inks.ink(moon.def.inkIndex))
-            .set('uInkHighlight', inks.ink(0));
-          moonMesh.draw();
-        }
+    bodyProgram.set('uAtmosphere', 0).set('uStyle', SURFACE_STYLE_ID.rocky);
+    for (const body of bodies) {
+      for (const moon of body.moons) {
+        bodyProgram
+          .set('uModel', moon.model)
+          .set('uNormalMatrix', moon.normalMatrix)
+          .set('uInkBase', inks.ink(moon.def.inkIndex))
+          .set('uInkHighlight', inks.ink(0));
+        moonMesh.draw();
       }
     }
 
     // --- the belt: 2600 rocks, one draw call ------------------------------
-    if (settings.showBelt) {
-      asteroidProgram
-        .use()
-        .set('uViewProjection', camera.viewProjection)
-        .set('uTime', simDays)
-        .set('uOrbitScale', settings.orbitScale)
-        .set('uCompression', settings.compression)
-        .set('uSizeScale', settings.bodyScale * 0.06)
-        .set('uInkShadow', inks.shadow)
-        .set('uInkBase', inks.ink(0))
-        .set('uInkHighlight', inks.ink(2));
-      beltMesh.draw(BELT.count);
-    }
+    asteroidProgram
+      .use()
+      .set('uViewProjection', camera.viewProjection)
+      .set('uTime', simDays)
+      .set('uOrbitScale', ORBIT_SCALE)
+      .set('uCompression', COMPRESSION)
+      .set('uSizeScale', BODY_SCALE * 0.06)
+      .set('uInkShadow', inks.shadow)
+      .set('uInkBase', inks.ink(0))
+      .set('uInkHighlight', inks.ink(2));
+    beltMesh.draw(BELT.count);
 
     // --- the probe, loaded from OBJ ---------------------------------------
-    if (settings.showProbe) {
-      bodyProgram
-        .use()
-        .set('uViewProjection', camera.viewProjection)
-        .set('uLightPos', lightPosition)
-        .set('uCameraPos', camera.position)
-        .set('uInkShadow', inks.shadow)
-        .set('uBands', Math.max(settings.bands, 3))
-        .set('uSoftness', settings.softness)
-        .set('uShadeMode', settings.shadeMode)
-        .set('uPattern', 0)
-        .set('uAtmosphere', 0)
-        .set('uStyle', SURFACE_STYLE_ID.rocky)
-        .set('uModel', probe.model)
-        .set('uNormalMatrix', probe.normalMatrix)
-        .set('uInkBase', inks.ink(0))
-        .set('uInkHighlight', inks.ink(1));
-      gl.disable(gl.CULL_FACE); // the probe is an open shell in places
-      probeMesh.draw();
-      gl.enable(gl.CULL_FACE);
-    }
+    bodyProgram
+      .use()
+      .set('uViewProjection', camera.viewProjection)
+      .set('uLightPos', lightPosition)
+      .set('uCameraPos', camera.position)
+      .set('uInkShadow', inks.shadow)
+      .set('uBands', BANDS)
+      .set('uSoftness', SOFTNESS)
+      .set('uShadeMode', settings.shadeMode)
+      .set('uPattern', 0)
+      .set('uAtmosphere', 0)
+      .set('uStyle', SURFACE_STYLE_ID.rocky)
+      .set('uModel', probe.model)
+      .set('uNormalMatrix', probe.normalMatrix)
+      .set('uInkBase', inks.ink(0))
+      .set('uInkHighlight', inks.ink(1));
+    gl.disable(gl.CULL_FACE); // the probe is an open shell in places
+    probeMesh.draw();
+    gl.enable(gl.CULL_FACE);
 
     // --- translucent passes ------------------------------------------------
     beginTranslucent(gl);
 
-    if (settings.showRings) {
-      ringProgram
-        .use()
-        .set('uViewProjection', camera.viewProjection)
-        .set('uLightPos', lightPosition)
-        .set('uCameraPos', camera.position);
+    ringProgram
+      .use()
+      .set('uViewProjection', camera.viewProjection)
+      .set('uLightPos', lightPosition)
+      .set('uCameraPos', camera.position);
 
-      for (const body of bodies) {
-        if (!body.ringMesh || !body.def.rings) continue;
-        // The annulus was built in planet-radius units, so the planet's own
-        // model matrix (tilt included) places the rings for free.
-        ringProgram
-          .set('uModel', body.model)
-          .set('uNormalMatrix', body.normalMatrix)
-          .set('uInk', inks.ink(body.def.inkIndex))
-          .set('uInkDark', inks.shadow)
-          .set('uOpacity', body.def.rings.opacity)
-          .set('uSeed', body.def.radiusKm * 0.001)
-          .set('uPlanetCenter', body.position)
-          .set('uPlanetRadius', body.radius);
-        body.ringMesh.draw();
-      }
+    for (const body of bodies) {
+      if (!body.ringMesh || !body.def.rings) continue;
+      // The annulus was built in planet-radius units, so the planet's own
+      // model matrix (tilt included) places the rings for free.
+      ringProgram
+        .set('uModel', body.model)
+        .set('uNormalMatrix', body.normalMatrix)
+        .set('uInk', inks.ink(body.def.inkIndex))
+        .set('uInkDark', inks.shadow)
+        .set('uOpacity', body.def.rings.opacity)
+        .set('uSeed', body.def.radiusKm * 0.001)
+        .set('uPlanetCenter', body.position)
+        .set('uPlanetRadius', body.radius);
+      body.ringMesh.draw();
     }
 
     // --- orbit traces ------------------------------------------------------
@@ -909,9 +848,9 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
         .use()
         .set('uViewProjection', camera.viewProjection)
         .set('uResolution', resolution)
-        .set('uLineWidth', settings.lineWidth * (viewportWidth / Math.max(1, ctx.canvas.clientWidth)))
+        .set('uLineWidth', LINE_WIDTH * (viewportWidth / Math.max(1, ctx.canvas.clientWidth)))
         .set('uTrail', 0.28)
-        .set('uDashes', settings.dashedOrbits ? 48 : 0);
+        .set('uDashes', 0);
 
       for (const body of bodies) {
         orbitProgram
@@ -922,7 +861,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       }
 
       // The tour route, dashed, so it reads as a plan rather than an orbit.
-      if (settings.showProbe && tourMesh) {
+      if (tourMesh) {
         orbitProgram
           .set('uInk', inks.ink(0))
           .set('uOpacity', 0.5)
@@ -945,7 +884,7 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
         .use()
         .set('uViewProjection', camera.viewProjection)
         .set('uResolution', resolution)
-        .set('uLineWidth', settings.lineWidth * (viewportWidth / Math.max(1, ctx.canvas.clientWidth)))
+        .set('uLineWidth', LINE_WIDTH * (viewportWidth / Math.max(1, ctx.canvas.clientWidth)))
         .set('uInk', inks.ink(0))
         .set('uOpacity', 0.75 * fade)
         .set('uPhase', 0)
@@ -955,26 +894,24 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     }
 
     // --- corona, additive over everything ---------------------------------
-    if (settings.corona > 0.001) {
-      beginAdditive(gl);
-      // A prominence rises and falls over its few seconds; sin gives it a
-      // shape that leaves the limb and returns to it rather than snapping off.
-      const promLift = promAge < 0
-        ? 0
-        : Math.sin(Math.PI * (promAge / PROMINENCE_LIFE)) * promPeak;
+    beginAdditive(gl);
+    // A prominence rises and falls over its few seconds; sin gives it a
+    // shape that leaves the limb and returns to it rather than snapping off.
+    const promLift = promAge < 0
+      ? 0
+      : Math.sin(Math.PI * (promAge / PROMINENCE_LIFE)) * promPeak;
 
-      corona.draw(camera, {
-        center: sun.position,
-        scale: sun.radius * 3.0,
-        inner: 1 / 3.0,
-        ink: inks.ink(plate.corona),
-        opacity: settings.corona,
-        time: sunClock,
-        prominenceAngle: promAngle,
-        prominenceReach: promLift,
-        prominenceArc: 0.05,
-      });
-    }
+    corona.draw(camera, {
+      center: sun.position,
+      scale: sun.radius * 3.0,
+      inner: 1 / 3.0,
+      ink: inks.ink(plate.corona),
+      opacity: CORONA,
+      time: sunClock,
+      prominenceAngle: promAngle,
+      prominenceReach: promLift,
+      prominenceArc: 0.05,
+    });
 
     endPasses(gl);
   };

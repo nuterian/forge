@@ -41,11 +41,13 @@ import orbitFrag from '../../scene/shaders/orbit.frag?raw';
 
 /** Points sampled along the orbit trace. */
 const ORBIT_SAMPLES = 256;
+/** Ink steps across a lit hemisphere, and how hard the terminator is. */
+const BANDS = 5;
+const SOFTNESS = 0.05;
 
+/** What the panel can change. */
 interface Settings {
   shadeMode: number;
-  bands: number;
-  softness: number;
   relief: number;
   filterMode: number;
   pace: number;
@@ -60,8 +62,6 @@ export function create(ctx: ChapterContext): ChapterInstance {
 
   const settings: Settings = {
     shadeMode: 0,
-    bands: 5,
-    softness: 0.05,
     relief: 1,
     filterMode: 0,
     pace: 1,
@@ -372,8 +372,8 @@ export function create(ctx: ChapterContext): ChapterInstance {
       .set('uCloudDrift', cloudDrift)
       .set('uRelief', settings.relief)
       .set('uShadeMode', settings.shadeMode)
-      .set('uBands', settings.bands)
-      .set('uSoftness', settings.softness)
+      .set('uBands', BANDS)
+      .set('uSoftness', SOFTNESS)
       .set('uFilterMode', settings.filterMode)
       .set('uMoonA', moonA)
       .set('uMoonB', moonB)
@@ -390,8 +390,8 @@ export function create(ctx: ChapterContext): ChapterInstance {
         .set('uLightPos', ORIGIN)
         .set('uCameraPos', camera.position)
         .set('uInkShadow', inks.shadow)
-        .set('uBands', settings.bands)
-        .set('uSoftness', settings.softness)
+        .set('uBands', BANDS)
+        .set('uSoftness', SOFTNESS)
         .set('uShadeMode', settings.shadeMode)
         .set('uPattern', 0.6)
         .set('uAtmosphere', 0)
