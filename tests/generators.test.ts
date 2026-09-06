@@ -21,6 +21,7 @@ import { constellationName, starName, bodyName } from '../src/core/names.ts';
 import { generateSky } from '../src/chapters/01-star-chart/sky.ts';
 import { generateDeepSky } from '../src/chapters/01-star-chart/deepsky.ts';
 import { classifyPlanet, generatePlanet, generateStar } from '../src/chapters/03-worldsmith/params.ts';
+import { BELT, beltAttributes } from '../src/chapters/02-orrery/bodies.ts';
 import { fingerprint } from './fingerprint.ts';
 
 test('the seed hash and the Rng stream are bit-exact', () => {
@@ -131,6 +132,19 @@ test('every world is plausible', () => {
     for (const moon of p.moons) assert.ok(moon.distance > 2, 'moons clear the planet');
     if (p.rings) assert.ok(p.rings.outer > p.rings.inner && p.rings.inner > 1);
   }
+});
+
+test('the asteroid belt is what it always was', () => {
+  // The Orrery's one seeded feature, shared with the benchmark.
+  const belt = beltAttributes(new Rng('main-belt'));
+  assert.equal(belt.orbit.length, BELT.count * 4);
+  assert.equal(belt.phase.length, BELT.count * 4);
+  for (let i = 0; i < BELT.count; i++) {
+    const a = belt.orbit[i * 4]!;
+    assert.ok(a > BELT.innerAu && a < BELT.outerAu * 1.1, 'a rock stays in the belt');
+    assert.ok(belt.orbit[i * 4 + 1]! < BELT.maxEccentricity);
+  }
+  assert.equal(fingerprint(belt), '29c424f08ffd3580');
 });
 
 test('invented names are what they always were', () => {

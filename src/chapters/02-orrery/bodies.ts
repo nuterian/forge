@@ -7,7 +7,9 @@
  * that would cost a great deal of code and change nothing you can see.
  */
 
+import { DEG, TAU } from '../../core/math.ts';
 import type { OrbitalElements } from '../../core/kepler.ts';
+import type { Rng } from '../../core/rng.ts';
 import type { SurfaceStyle } from '../../scene/body.ts';
 
 export interface RingDef {
@@ -175,6 +177,42 @@ export const BELT = {
   maxEccentricity: 0.18,
   maxInclination: 17,
 };
+
+/**
+ * Every rock in the belt, as the two per-instance attributes the asteroid
+ * shader integrates on the GPU. Drawn from `rng` in an order that is fixed
+ * for good: the benchmark and the determinism suite build the same belt.
+ *
+ *   orbit: x semi-major axis (AU), y eccentricity, z inclination (rad), w phase (rad)
+ *   phase: x mean motion (rad/day), y size, z spin rate, w tint mix
+ */
+export function beltAttributes(rng: Rng): { orbit: Float32Array; phase: Float32Array } {
+  const orbit = new Float32Array(BELT.count * 4);
+  const phase = new Float32Array(BELT.count * 4);
+
+  for (let i = 0; i < BELT.count; i++) {
+    // Bias toward the middle of the belt, and carve the inner edge back.
+    const t = rng.next();
+    const a = BELT.innerAu + (BELT.outerAu - BELT.innerAu) * (0.25 + 0.75 * t) * (0.9 + rng.next() * 0.2);
+    const e = rng.next() * BELT.maxEccentricity;
+    const inclination = rng.gaussian() * BELT.maxInclination * 0.3 * DEG;
+    const angle = rng.next() * TAU;
+
+    orbit[i * 4] = a;
+    orbit[i * 4 + 1] = e;
+    orbit[i * 4 + 2] = inclination;
+    orbit[i * 4 + 3] = angle;
+
+    // Mean motion from Kepler's third law: period ∝ a^{3/2}.
+    const periodDays = 365.256 * Math.pow(a, 1.5);
+    phase[i * 4] = TAU / periodDays;
+    phase[i * 4 + 1] = rng.power(0.5, 2.4, 2.2);
+    phase[i * 4 + 2] = rng.range(-0.9, 0.9);
+    phase[i * 4 + 3] = rng.next();
+  }
+
+  return { orbit, phase };
+}
 
 /** Bodies the camera can be told to follow, in tour order. */
 export const TOUR_ORDER = ['earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];

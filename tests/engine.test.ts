@@ -20,6 +20,10 @@ import { Spline } from '../src/core/spline.ts';
 import { vec3, TAU } from '../src/core/math.ts';
 import { parseObj, normalizeGeometry } from '../src/gl/obj.ts';
 import { InkSet, PALETTES, mixHex } from '../src/ui/palette.ts';
+import { DEG } from '../src/core/math.ts';
+import { generateSky } from '../src/chapters/01-star-chart/sky.ts';
+import { generateDeepSky } from '../src/chapters/01-star-chart/deepsky.ts';
+import { ChartPlate, projectPlanisphere, type Basis, type PlateView } from '../src/chapters/01-star-chart/plate.ts';
 import { fingerprint, fingerprintBytes } from './fingerprint.ts';
 
 const PAPER: RGB = [10, 12, 19];
@@ -51,6 +55,57 @@ test('the rasterizer prints the same plate, byte for byte', () => {
   // One pixel spelled out, so a failure here points at a channel and not a hash.
   const i = (50 * r.width + 40) * 4;
   assert.deepEqual(Array.from(r.data.slice(i, i + 4)), [253, 174, 58, 255], 'the centre of the amber dot');
+});
+
+/**
+ * The whole Star Chart plate — graticule, deep sky, instrument furniture,
+ * stars, figures — through the same ChartPlate the chapter and the benchmark
+ * draw with, at two views. This is the hash that says "a stroke moved" before
+ * anyone sees it: the catalogue tests above pin what the seed *means*, this
+ * pins what it *prints*.
+ */
+test('the Star Chart prints the same plate, byte for byte', () => {
+  const inks = new InkSet(PALETTES.find((p) => p.id === 'cyanotype')!);
+  const plate = new ChartPlate(generateSky('VELA-2015'), generateDeepSky('VELA-2015'), inks, {
+    title: 'URANOGRAPHIA', seed: 'SEED VELA-2015', epoch: 'EPOCH 2026.0 \u00b7 THE FORGE PRESS',
+  });
+  const r = new Raster(600, 338);
+  const basis: Basis = {
+    right: vec3.create(1, 0, 0), up: vec3.create(0, 1, 0), forward: vec3.create(0, 0, -1),
+  };
+  const view: PlateView = {
+    project: (dir, out) => {
+      projectPlanisphere(dir, basis, view.fov, r.width, r.height, out);
+      out.x *= r.width;
+      out.y *= r.height;
+    },
+    fov: 110 * DEG, pxPerCss: 1, narrow: false, antialias: true,
+  };
+  const print = (): string => {
+    r.clear(inks.paperRgb);
+    plate.drawGraticule(r, view);
+    plate.drawDeepSky(r, view);
+    plate.drawFurniture(r, view);
+    plate.drawStars(r, view, 0.7);
+    plate.drawFigures(r, view);
+    return fingerprintBytes(r.data);
+  };
+
+  // The arrival view: a desktop, 110° across.
+  assert.equal(print(), 'eee52c63efc78e67');
+  // Zoomed all the way out on a phone: every star on the page, the rim ticks
+  // drawn, the cartouche moved to the top.
+  view.fov = 7.6;
+  view.narrow = true;
+  view.pxPerCss = 2;
+  assert.equal(print(), 'dd7d9706b7f76590');
+  // Naive lines, no furniture: the stars print everywhere.
+  view.antialias = false;
+  plate.clearFurniture();
+  r.clear(inks.paperRgb);
+  plate.drawGraticule(r, view);
+  plate.drawStars(r, view, 0);
+  assert.equal(fingerprintBytes(r.data), 'e8772aa7bb8f7c4b');
 });
 
 test('the rasterizer respects its edges and its alpha', () => {

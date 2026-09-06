@@ -29,8 +29,6 @@
  * cpu.chart.frame is re-budgeted from it below; the rest are left alone rather
  * than ratcheted on the strength of a single run.
  *
- * Re-budgeted once since: cpu.chart.frame, when the Star Chart gained its
- * instrument plate. See the note on that entry below.
  */
 
 export const THRESHOLDS: Record<string, number> = {
@@ -63,19 +61,9 @@ export const THRESHOLDS: Record<string, number> = {
   // node, a ratio of 1.33). Budgeted well above that because the figure is
   // derived; tighten once a clean run measures it directly.
   'cpu.raster.text': 0.3,
-  // Re-budgeted from 2.5 when the Star Chart gained its instrument furniture:
-  // the deep-sky stipple, the lettered cartouche, the compass rose and the
-  // rim's degree ticks all landed inside this bench's workload.
-  //
-  // It went to 3.9 first, on an estimate, and that was too loose. The estimate
-  // scaled the recorded 1.23ms best by the 1.57x the furniture costs when the
-  // rasterizer is timed outside the browser. What it could not account for is
-  // that the 1.23ms baseline was itself measured on a busy machine: one clean
-  // in-browser run — every other row at or below its recorded best, raster
-  // lines at 0.72ms against a recorded 1.83 — put the furniture-inclusive
-  // frame at 1.00ms. Faster WITH the furniture than the number the old budget
-  // was set from. So this follows the file's own rule against the figure that
-  // was actually measured: twice 1.00, plus a little for a less quiet machine.
+  // The chapter's own ChartPlate at the arrival view, on a dirty frame — the
+  // bench calls the code that ships, so a change to the plate moves this row
+  // without anyone having to mirror it. Twice a measured 1.00ms.
   'cpu.chart.frame': 2.2,
   'cpu.kepler': 1.3,
   'cpu.labels': 0.025,

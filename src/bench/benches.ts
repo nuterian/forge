@@ -9,7 +9,7 @@
  * the label layer) on seeded data.
  */
 
-import { DEG, TAU, vec3 } from '../core/math.ts';
+import { DEG, vec3 } from '../core/math.ts';
 import { OrbitCamera } from '../core/camera.ts';
 import { Rng } from '../core/rng.ts';
 import { Raster } from '../core/raster.ts';
@@ -25,6 +25,8 @@ import { InkSet, PALETTES } from '../ui/palette.ts';
 import { LabelLayer, type LabelSpec } from '../ui/labels.ts';
 import { generateSky } from '../chapters/01-star-chart/sky.ts';
 import { generateDeepSky } from '../chapters/01-star-chart/deepsky.ts';
+import { ChartPlate, projectPlanisphere, type Basis, type PlateView } from '../chapters/01-star-chart/plate.ts';
+import { beltAttributes } from '../chapters/02-orrery/bodies.ts';
 import { applyPlanetUniforms, bakePlanetFields, createRampTexture } from '../chapters/03-worldsmith/planet.ts';
 import { generatePlanet } from '../chapters/03-worldsmith/params.ts';
 import { GpuTimer, best, cpuBench, yieldTask, type BenchResult } from './harness.ts';
@@ -215,29 +217,16 @@ export async function runAllBenches(
       name: 'Asteroid belt, 2600 instances',
       reps: 60,
       setup: () => {
-        const count = 2600;
-        const beltRng = new Rng('main-belt');
-        const orbitAttr = new Float32Array(count * 4);
-        const phaseAttr = new Float32Array(count * 4);
-        for (let i = 0; i < count; i++) {
-          const t = beltRng.next();
-          const a = 2.1 + 1.2 * (0.25 + 0.75 * t) * (0.9 + beltRng.next() * 0.2);
-          orbitAttr[i * 4] = a;
-          orbitAttr[i * 4 + 1] = beltRng.next() * 0.2;
-          orbitAttr[i * 4 + 2] = beltRng.gaussian() * 0.1;
-          orbitAttr[i * 4 + 3] = beltRng.next() * TAU;
-          phaseAttr[i * 4] = TAU / (365 * Math.pow(a, 1.5));
-          phaseAttr[i * 4 + 1] = beltRng.power(0.5, 2.4, 2.2);
-          phaseAttr[i * 4 + 2] = beltRng.range(-0.9, 0.9);
-          phaseAttr[i * 4 + 3] = beltRng.next();
-        }
+        // The Orrery's own belt, from the same seed.
+        const belt = beltAttributes(new Rng('main-belt'));
+        const count = belt.orbit.length / 4;
         const geo = icosphere(1, 1);
         const mesh = new Mesh(gl, {
           attributes: [
             { name: 'aPosition', data: geo.positions, size: 3 },
             { name: 'aNormal', data: geo.normals, size: 3 },
-            { name: 'aOrbit', data: orbitAttr, size: 4, divisor: 1 },
-            { name: 'aPhase', data: phaseAttr, size: 4, divisor: 1 },
+            { name: 'aOrbit', data: belt.orbit, size: 4, divisor: 1 },
+            { name: 'aPhase', data: belt.phase, size: 4, divisor: 1 },
           ],
           indices: geo.indices,
         });
@@ -289,198 +278,35 @@ export async function runAllBenches(
   const paper: [number, number, number] = [10, 12, 19];
   const line: [number, number, number] = [244, 233, 212];
 
-  const sky = generateSky('VELA-2015');
-
-  // A fixed chart projection: the identity basis, 110° fov, like ch1 at rest.
-  const chartProject = (dir: Float32Array | number[], out: { x: number; y: number; visible: boolean }): void => {
-    const f = Math.min(1, Math.max(-1, -dir[2]!));
-    const theta = Math.acos(f);
-    const s = (theta / (55 * DEG)) * 0.46;
-    const sinT = Math.hypot(dir[0]!, dir[1]!);
-    const ux = sinT > 1e-6 ? dir[0]! / sinT : 0;
-    const uy = sinT > 1e-6 ? dir[1]! / sinT : 0;
-    out.x = (0.5 + ux * s * (rasterH / rasterW)) * rasterW;
-    out.y = (0.5 - uy * s) * rasterH;
-    out.visible = theta < Math.PI * 0.999;
+  // The Star Chart's real plate — the same class the chapter draws with — at
+  // the view a visitor arrives to (110° across, looking down -Z), on a dirty
+  // frame: the one where the baked plate has to be redrawn because the view
+  // moved. Stars, figures, deep sky and the instrument furniture, exactly as
+  // the chapter lays them down.
+  const plate = new ChartPlate(generateSky('VELA-2015'), generateDeepSky('bench'), inks, {
+    title: 'TABULA ASTRORUM', seed: 'SEED BENCH-0000', epoch: 'EPOCH 2026.0 \u00b7 THE FORGE PRESS',
+  });
+  const basis: Basis = {
+    right: vec3.create(1, 0, 0), up: vec3.create(0, 1, 0), forward: vec3.create(0, 0, -1),
   };
-  const pa = { x: 0, y: 0, visible: false };
-  const pb = { x: 0, y: 0, visible: false };
-
-  const deepSky = generateDeepSky('bench');
-  const deepDir = vec3.create();
-
-  /**
-   * The chart's instrument furniture, drawn the way ch1 draws it: the deep-sky
-   * stipple, the lettered cartouche, the compass rose's triangle points, and
-   * the degree ticks around the planisphere's rim. The rim ticks only appear
-   * on the real plate when the whole sphere is in frame; they are always drawn
-   * here because this bench is a bound on the worst frame, not the usual one.
-   */
-  const chartFurniture = (): void => {
-    for (const object of deepSky) {
-      for (let i = 0; i < object.radii.length; i++) {
-        vec3.set(deepDir, object.points[i * 3]!, object.points[i * 3 + 1]!, object.points[i * 3 + 2]!);
-        chartProject(deepDir, pa);
-        if (!pa.visible) continue;
-        raster.dot(pa.x, pa.y, object.radii[i]!, line, object.alphas[i]!, true);
-      }
-    }
-
-    // The cartouche: paper fill, double rule, three lines of the stroke font.
-    const title = 'TABULA ASTRORUM';
-    const seedLine = 'SEED BENCH-0000';
-    const epochLine = 'EPOCH 2026.0 \u00b7 THE FORGE PRESS';
-    const boxW = Math.max(
-      raster.measureText(title, 9.5),
-      raster.measureText(seedLine, 6.4),
-      raster.measureText(epochLine, 6.4),
-    ) + 20;
-    const boxH = 54;
-    const x0 = (rasterW - boxW) / 2;
-    const y0 = rasterH - boxH - 30;
-    const x1 = x0 + boxW;
-    const y1 = y0 + boxH;
-    raster.triangle(x0, y0, x1, y0, x1, y1, paper, 0.93, false);
-    raster.triangle(x0, y0, x1, y1, x0, y1, paper, 0.93, false);
-    for (const inset of [0, 3]) {
-      const a = x0 + inset, b = y0 + inset, c = x1 - inset, d = y1 - inset;
-      raster.line(a, b, c, b, line, { alpha: 0.5, aa: true });
-      raster.line(c, b, c, d, line, { alpha: 0.5, aa: true });
-      raster.line(c, d, a, d, line, { alpha: 0.5, aa: true });
-      raster.line(a, d, a, b, line, { alpha: 0.5, aa: true });
-    }
-    const boxCx = (x0 + x1) / 2;
-    raster.textCentered(boxCx, y0 + 10, title, 9.5, line, { alpha: 0.92, aa: true });
-    raster.textCentered(boxCx, y0 + 27, seedLine, 6.4, line, { alpha: 0.85, aa: true });
-    raster.textCentered(boxCx, y0 + 38, epochLine, 6.4, line, { alpha: 0.45, aa: true });
-
-    // The compass rose.
-    const R = 50;
-    const rx = rasterW - R - 26;
-    const ry = 200 + R;
-    raster.dot(rx, ry, R * 1.06, paper, 0.9, true);
-    for (let i = 0; i < 48; i++) {
-      const a = (i / 48) * TAU;
-      const inner = R * (i % 6 === 0 ? 0.82 : 0.9);
-      raster.line(
-        rx + Math.cos(a) * inner, ry + Math.sin(a) * inner,
-        rx + Math.cos(a) * R, ry + Math.sin(a) * R,
-        line, { alpha: 0.4, aa: true },
-      );
-    }
-    raster.ring(rx, ry, R * 0.78, line, 0.35, true);
-    raster.ring(rx, ry, R * 0.2, line, 0.45, true);
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * TAU;
-      const long = k % 2 === 0;
-      const reach = R * (long ? 0.76 : 0.46);
-      const halfWidth = R * (long ? 0.11 : 0.08);
-      const tipX = rx + Math.cos(a) * reach;
-      const tipY = ry + Math.sin(a) * reach;
-      const ox = -Math.sin(a) * halfWidth;
-      const oy = Math.cos(a) * halfWidth;
-      raster.triangle(rx, ry, tipX, tipY, rx + ox, ry + oy, line, 0.75, true);
-      raster.triangle(rx, ry, tipX, tipY, rx - ox, ry - oy, line, 0.34, true);
-    }
-    raster.textCentered(rx, ry - R * 1.3, 'N', 7, line, { alpha: 0.9, aa: true });
-
-    // Degree ticks around the rim, lettered every 45 degrees.
-    const shortSide = Math.min(rasterW, rasterH);
-    const limbR = shortSide * 0.38;
-    const lx = rasterW / 2;
-    const ly = rasterH / 2;
-    raster.ring(lx, ly, limbR, line, 0.3, true);
-    for (let deg = 0; deg < 360; deg += 5) {
-      const a = (deg * Math.PI) / 180;
-      const long = deg % 45 === 0;
-      const mid = deg % 15 === 0;
-      const len = limbR * (long ? 0.055 : mid ? 0.032 : 0.018);
-      raster.line(
-        lx + Math.cos(a) * limbR, ly + Math.sin(a) * limbR,
-        lx + Math.cos(a) * (limbR - len), ly + Math.sin(a) * (limbR - len),
-        line, { alpha: 0.34, aa: true },
-      );
-      if (long) {
-        const rr = limbR - len - 9;
-        raster.textCentered(
-          lx + Math.cos(a) * rr, ly + Math.sin(a) * rr - 3,
-          `${String(deg).padStart(3, '0')}\u00b0`, 6, line, { alpha: 0.4, aa: true },
-        );
-      }
-    }
+  const view: PlateView = {
+    project: (dir, out) => {
+      projectPlanisphere(dir, basis, view.fov, rasterW, rasterH, out);
+      out.x *= rasterW;
+      out.y *= rasterH;
+    },
+    fov: 110 * DEG,
+    pxPerCss: 1,
+    narrow: false,
+    antialias: true,
   };
-
-  /**
-   * The full chart workload: clear + graticule + deep sky + instrument plate +
-   * stars + figures, ch1's mix on a dirty frame — the one where the plate has
-   * to be re-baked because the view moved.
-   */
   const chartFrame = (): void => {
     raster.clear(paper);
-    // Graticule: 5 declination rings + 12 meridians at 72 steps.
-    const point = vec3.create();
-    for (let ring = 1; ring < 6; ring++) {
-      const phi = (ring / 6) * Math.PI;
-      const y = Math.cos(phi);
-      const r = Math.sin(phi);
-      let started = false;
-      for (let s = 0; s <= 72; s++) {
-        const theta = (s / 72) * TAU;
-        vec3.set(point, r * Math.cos(theta), y, r * Math.sin(theta));
-        chartProject(point, pb);
-        if (started && pa.visible && pb.visible) {
-          raster.line(pa.x, pa.y, pb.x, pb.y, line, { alpha: 0.16, aa: true });
-        }
-        pa.x = pb.x; pa.y = pb.y; pa.visible = pb.visible;
-        started = true;
-      }
-    }
-    for (let m = 0; m < 12; m++) {
-      const theta = (m / 12) * TAU;
-      const ct = Math.cos(theta);
-      const st = Math.sin(theta);
-      let started = false;
-      for (let s = 0; s <= 36; s++) {
-        const phi = (s / 36) * Math.PI;
-        const r = Math.sin(phi);
-        vec3.set(point, r * ct, Math.cos(phi), r * st);
-        chartProject(point, pb);
-        if (started && pa.visible && pb.visible) {
-          raster.line(pa.x, pa.y, pb.x, pb.y, line, { alpha: 0.16, aa: true });
-        }
-        pa.x = pb.x; pa.y = pb.y; pa.visible = pb.visible;
-        started = true;
-      }
-    }
-    chartFurniture();
-    // Stars, with ch1's radius/alpha formulas and diamond spikes.
-    for (let i = 0; i < sky.stars.length; i++) {
-      const star = sky.stars[i]!;
-      chartProject(star.dir, pa);
-      if (!pa.visible) continue;
-      const radius = 0.4 + star.mag * star.mag * 2.6;
-      const alpha = 0.5 + star.mag * 0.5;
-      raster.dot(pa.x, pa.y, radius, line, alpha, true);
-      if (star.mag > 0.88) {
-        const s = radius * 3.2;
-        raster.triangle(pa.x - s, pa.y, pa.x, pa.y - radius * 0.55, pa.x, pa.y + radius * 0.55, line, alpha * 0.6, true);
-        raster.triangle(pa.x + s, pa.y, pa.x, pa.y - radius * 0.55, pa.x, pa.y + radius * 0.55, line, alpha * 0.6, true);
-        raster.triangle(pa.x, pa.y - s, pa.x - radius * 0.55, pa.y, pa.x + radius * 0.55, pa.y, line, alpha * 0.6, true);
-        raster.triangle(pa.x, pa.y + s, pa.x - radius * 0.55, pa.y, pa.x + radius * 0.55, pa.y, line, alpha * 0.6, true);
-      }
-    }
-    // Figures.
-    const chainPoints: number[] = [];
-    for (const con of sky.constellations) {
-      chainPoints.length = 0;
-      for (const idx of con.chain) {
-        chartProject(sky.stars[idx]!.dir, pa);
-        if (pa.visible) chainPoints.push(pa.x, pa.y);
-      }
-      if (chainPoints.length >= 4) {
-        raster.splineStroke(chainPoints, line, { alpha: 0.5, aa: true });
-      }
-    }
+    plate.drawGraticule(raster, view);
+    plate.drawDeepSky(raster, view);
+    plate.drawFurniture(raster, view);
+    plate.drawStars(raster, view, 0);
+    plate.drawFigures(raster, view);
   };
 
   const orbit: OrbitalElements = {

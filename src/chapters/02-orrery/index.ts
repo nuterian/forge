@@ -28,7 +28,7 @@ import type { LabelSpec } from '../../ui/labels.ts';
 import { SURFACE_STYLE_ID } from '../../scene/body.ts';
 import { GlowBillboard } from '../../scene/glow.ts';
 import { SkyPass } from '../../scene/sky.ts';
-import { BELT, PLANETS, TOUR_ORDER, type BodyDef, type MoonDef } from './bodies.ts';
+import { BELT, PLANETS, TOUR_ORDER, beltAttributes, type BodyDef, type MoonDef } from './bodies.ts';
 import { dateFromDays, daysFromDate, meanAnomalyAt, positionAt, positionAtAnomaly, satelliteOffset } from '../../core/kepler.ts';
 
 // Scene furniture shared with the other space chapters.
@@ -313,38 +313,14 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
   // One draw call. Every rock's orbit lives in these two instance attributes
   // and is integrated on the GPU; nothing here is touched again after upload.
 
-  const beltRng = new Rng('main-belt');
-  const orbitAttr = new Float32Array(BELT.count * 4);
-  const phaseAttr = new Float32Array(BELT.count * 4);
-
-  for (let i = 0; i < BELT.count; i++) {
-    // Bias toward the middle of the belt, and carve the inner edge back.
-    const t = beltRng.next();
-    const a = BELT.innerAu + (BELT.outerAu - BELT.innerAu) * (0.25 + 0.75 * t) * (0.9 + beltRng.next() * 0.2);
-    const e = beltRng.next() * BELT.maxEccentricity;
-    const inclination = beltRng.gaussian() * BELT.maxInclination * 0.3 * DEG;
-    const phase = beltRng.next() * TAU;
-
-    orbitAttr[i * 4] = a;
-    orbitAttr[i * 4 + 1] = e;
-    orbitAttr[i * 4 + 2] = inclination;
-    orbitAttr[i * 4 + 3] = phase;
-
-    // Mean motion from Kepler's third law: period ∝ a^{3/2}.
-    const periodDays = 365.256 * Math.pow(a, 1.5);
-    phaseAttr[i * 4] = TAU / periodDays;
-    phaseAttr[i * 4 + 1] = beltRng.power(0.5, 2.4, 2.2);
-    phaseAttr[i * 4 + 2] = beltRng.range(-0.9, 0.9);
-    phaseAttr[i * 4 + 3] = beltRng.next();
-  }
-
+  const belt = beltAttributes(new Rng('main-belt'));
   const asteroidGeo = icosphere(1, 1);
   const beltMesh = new Mesh(gl, {
     attributes: [
       { name: 'aPosition', data: asteroidGeo.positions, size: 3 },
       { name: 'aNormal', data: asteroidGeo.normals, size: 3 },
-      { name: 'aOrbit', data: orbitAttr, size: 4, divisor: 1 },
-      { name: 'aPhase', data: phaseAttr, size: 4, divisor: 1 },
+      { name: 'aOrbit', data: belt.orbit, size: 4, divisor: 1 },
+      { name: 'aPhase', data: belt.phase, size: 4, divisor: 1 },
     ],
     indices: asteroidGeo.indices,
   });
