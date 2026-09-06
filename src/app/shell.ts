@@ -5,7 +5,6 @@
 
 import { Loop } from '../core/loop.ts';
 import { OrbitCamera } from '../core/camera.ts';
-import { vec3 } from '../core/math.ts';
 import { Rng, randomSeedString } from '../core/rng.ts';
 import { createContext, maxSamples, resizeToDisplay, WebGLNotSupportedError, type GLContext } from '../gl/context.ts';
 import { registerChunks } from '../gl/chunks.ts';
@@ -414,16 +413,9 @@ export class Shell {
     this.chapterDef = def;
     this.currentSeed = seed;
 
-    // A genuinely new chapter starts from a clean pivot. Chapters only ever
-    // *move toward* their own subject (Worldsmith's planet can sit forty-odd
-    // units from the origin); nothing moves it back on the way out, so
-    // without this a chapter that assumes it starts near the origin — which
-    // is every one of them but Worldsmith — inherits a stray, far-off target
-    // and points at empty space until its own damping (~1s) drags it home.
-    if (!isReseed) {
-      vec3.set(this.camera.target, 0, 0, 0);
-      vec3.set(this.camera.position, 0, 0, 10);
-    }
+    // A genuinely new chapter starts from the default rig; see
+    // OrbitCamera.reset for why the shell does this rather than each chapter.
+    if (!isReseed) this.camera.reset();
 
     // Measure before the chapter is built, not after. Chapters frame their
     // opening shot in create(), and framing needs the aspect ratio — which is

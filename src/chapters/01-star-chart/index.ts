@@ -818,12 +818,6 @@ export function create(ctx: ChapterContext): ChapterInstance {
     dispose() {
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.style.cursor = 'grab';
-      camera.inputEnabled = true;
-      camera.lookOut = false;
-      camera.minFov = 18 * DEG;
-      camera.maxFov = 70 * DEG;
-      camera.fov = 42 * DEG;
-      labels.projector = null;
       blitter.dispose();
     },
   };

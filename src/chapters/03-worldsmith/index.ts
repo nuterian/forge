@@ -481,8 +481,6 @@ export function create(ctx: ChapterContext): ChapterInstance {
       viewportHeight = height;
     },
     dispose() {
-      camera.minDistance = 0.4;
-      camera.maxDistance = 900;
       sky.dispose();
       corona.dispose();
       halo.dispose();

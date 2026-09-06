@@ -989,7 +989,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
       viewportHeight = height;
     },
     dispose() {
-      camera.inputEnabled = true;
       sky.dispose();
       corona.dispose();
       for (const mesh of [planetMesh, moonMesh, probeMesh, beltMesh]) {

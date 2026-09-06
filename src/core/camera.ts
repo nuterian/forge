@@ -25,10 +25,30 @@ export interface OrbitCameraOptions {
 
 const UP = vec3.create(0, 1, 0);
 
+/**
+ * The camera a chapter starts from. The shell calls reset() on every fresh
+ * arrival, so a chapter sets what it wants and never has to undo it on the
+ * way out — the one place these numbers live.
+ */
+const DEFAULTS = {
+  fov: 42 * DEG,
+  near: 0.05,
+  far: 4000,
+  distance: 30,
+  minDistance: 0.4,
+  maxDistance: 900,
+  yaw: 0.6,
+  pitch: 0.42,
+  minFov: 18 * DEG,
+  maxFov: 70 * DEG,
+  lookOut: false,
+  inputEnabled: true,
+};
+
 export class OrbitCamera {
-  fov: number;
-  near: number;
-  far: number;
+  fov = DEFAULTS.fov;
+  near = DEFAULTS.near;
+  far = DEFAULTS.far;
   aspect = 1;
 
   /** Where the camera is looking. In orbit mode, the pivot. */
@@ -43,11 +63,11 @@ export class OrbitCamera {
   mode: CameraMode = 'orbit';
 
   /** Orbit parameters (desired; the rendered camera damps toward these). */
-  distance: number;
-  yaw: number;
-  pitch: number;
-  minDistance: number;
-  maxDistance: number;
+  distance = DEFAULTS.distance;
+  yaw = DEFAULTS.yaw;
+  pitch = DEFAULTS.pitch;
+  minDistance = DEFAULTS.minDistance;
+  maxDistance = DEFAULTS.maxDistance;
 
   /** How much of the error remains after one second. Lower = snappier. */
   damping = 0.0008;
@@ -74,30 +94,38 @@ export class OrbitCamera {
   private readonly listeners: Array<[string, EventListener]> = [];
 
   /** Set false while a tour is flying, so a stray drag doesn't fight it. */
-  inputEnabled = true;
+  inputEnabled = DEFAULTS.inputEnabled;
 
   /**
    * Look-out mode: the eye sits at the target and yaw/pitch aim the view
    * outward — for sky-watching chapters. Dragging pans the sky and the wheel
    * zooms the field of view instead of dollying.
    */
-  lookOut = false;
-  minFov = 18 * DEG;
-  maxFov = 70 * DEG;
+  lookOut = DEFAULTS.lookOut;
+  minFov = DEFAULTS.minFov;
+  maxFov = DEFAULTS.maxFov;
 
   constructor(opts: OrbitCameraOptions = {}) {
-    this.fov = opts.fov ?? 42 * DEG;
-    this.near = opts.near ?? 0.05;
-    this.far = opts.far ?? 4000;
-    this.distance = opts.distance ?? 30;
-    this.minDistance = opts.minDistance ?? 0.4;
-    this.maxDistance = opts.maxDistance ?? 900;
-    this.yaw = opts.yaw ?? 0.6;
-    this.pitch = opts.pitch ?? 0.42;
-
+    Object.assign(this, opts);
     this.computeDesired();
     vec3.copy(this.position, this.desiredPosition);
     vec3.copy(this.target, this.desiredTarget);
+  }
+
+  /**
+   * Back to the defaults, with the pivot at the origin and the eye a little
+   * way down +Z. The shell calls this on every fresh arrival: chapters only
+   * ever *move toward* their own subject (Worldsmith's planet can sit forty-odd
+   * units from the origin, the Star Chart flips the rig into look-out mode),
+   * and nothing else moves them back. Not called on a reseed, which keeps the
+   * reader's view.
+   */
+  reset(): void {
+    Object.assign(this, DEFAULTS);
+    this.mode = 'orbit';
+    vec3.set(this.desiredTarget, 0, 0, 0);
+    vec3.set(this.target, 0, 0, 0);
+    vec3.set(this.position, 0, 0, 10);
   }
 
   // -- input ---------------------------------------------------------------
