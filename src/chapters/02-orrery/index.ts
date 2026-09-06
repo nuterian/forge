@@ -216,13 +216,14 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
 
   // -- programs ------------------------------------------------------------
 
-  const bodyProgram = new Program(gl, bodyVert, bodyFrag, 'orrery.body');
-  const sunProgram = new Program(gl, bodyVert, sunFrag, 'orrery.sun');
-  const ringProgram = new Program(gl, bodyVert, ringsFrag, 'orrery.rings');
-  const orbitProgram = new Program(gl, orbitVert, orbitFrag, 'orrery.orbit');
-  const asteroidProgram = new Program(gl, asteroidVert, asteroidFrag, 'orrery.asteroid');
-  const sky = new SkyPass(gl, 'orrery.sky');
-  const corona = new GlowBillboard(gl, 'orrery.corona');
+  // Cached by source, so a reroll or an ink change finds them already built.
+  const bodyProgram = Program.cached(gl, bodyVert, bodyFrag, 'scene.body');
+  const sunProgram = Program.cached(gl, bodyVert, sunFrag, 'scene.sun');
+  const ringProgram = Program.cached(gl, bodyVert, ringsFrag, 'scene.rings');
+  const orbitProgram = Program.cached(gl, orbitVert, orbitFrag, 'scene.orbit');
+  const asteroidProgram = Program.cached(gl, asteroidVert, asteroidFrag, 'orrery.asteroid');
+  const sky = new SkyPass(gl);
+  const corona = new GlowBillboard(gl);
 
   // -- geometry ------------------------------------------------------------
 
@@ -989,9 +990,6 @@ export async function create(ctx: ChapterContext): Promise<ChapterInstance> {
     },
     dispose() {
       camera.inputEnabled = true;
-      for (const program of [bodyProgram, sunProgram, ringProgram, orbitProgram, asteroidProgram]) {
-        program.dispose();
-      }
       sky.dispose();
       corona.dispose();
       for (const mesh of [planetMesh, moonMesh, probeMesh, beltMesh]) {

@@ -22,7 +22,7 @@ export class RasterBlitter {
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
-    this.program = new Program(gl, blitVert, blitFrag, 'blit');
+    this.program = Program.cached(gl, blitVert, blitFrag, 'blit');
     this.quad = fullscreenTriangle(gl);
     const tex = gl.createTexture();
     if (!tex) throw new Error('RasterBlitter: texture allocation failed');
@@ -65,7 +65,6 @@ export class RasterBlitter {
 
   dispose(): void {
     this.gl.deleteTexture(this.texture);
-    this.program.dispose();
     this.quad.dispose();
   }
 }

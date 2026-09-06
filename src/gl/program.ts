@@ -46,6 +46,20 @@ interface UniformInfo {
 
 export type UniformValue = number | boolean | Float32Array | number[];
 
+/**
+ * Every program ever built, per context, keyed by its source.
+ *
+ * A chapter is torn down and rebuilt on every reroll and every ink change, and
+ * it used to recompile all of its programs each time — eight or nine for
+ * Worldsmith, two thirds of a reroll's wall time on the fastest hardware and
+ * far more than that on drivers that compile slowly. The source never changes
+ * between two builds of the same chapter, so the compiled program is kept for
+ * the life of the context and handed back on the next request. A session
+ * compiles about fifteen distinct programs in total; keeping them all costs
+ * nothing worth measuring, which is why there is no eviction and no dispose.
+ */
+const cache = new WeakMap<WebGL2RenderingContext, Map<string, Program>>();
+
 export class Program {
   readonly gl: WebGL2RenderingContext;
   readonly handle: WebGLProgram;
@@ -54,7 +68,31 @@ export class Program {
   /** Names already warned about, so a bad uniform doesn't spam every frame. */
   private readonly warned = new Set<string>();
 
-  constructor(gl: WebGL2RenderingContext, vertexSource: string, fragmentSource: string, name = 'program') {
+  /**
+   * The program for this vertex/fragment pair, compiled on first request and
+   * shared by every later one. `name` labels compile errors and the dev-only
+   * inactive-uniform warnings; the first caller's name sticks.
+   *
+   * Shared means shared state: uniforms persist between callers, so a draw
+   * must set every uniform it relies on rather than trust what the previous
+   * owner left behind. Every pass in the project already does.
+   */
+  static cached(gl: WebGL2RenderingContext, vertexSource: string, fragmentSource: string, name = 'program'): Program {
+    let programs = cache.get(gl);
+    if (!programs) {
+      programs = new Map();
+      cache.set(gl, programs);
+    }
+    const key = `${vertexSource}\0${fragmentSource}`;
+    let program = programs.get(key);
+    if (!program) {
+      program = new Program(gl, vertexSource, fragmentSource, name);
+      programs.set(key, program);
+    }
+    return program;
+  }
+
+  private constructor(gl: WebGL2RenderingContext, vertexSource: string, fragmentSource: string, name: string) {
     this.gl = gl;
     this.name = name;
 
@@ -165,10 +203,6 @@ export class Program {
     gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(target ?? gl.TEXTURE_2D, texture);
     return this.set(name, unit);
-  }
-
-  dispose(): void {
-    this.gl.deleteProgram(this.handle);
   }
 }
 

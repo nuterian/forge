@@ -89,7 +89,7 @@ export async function runAllBenches(
       name: 'Sky pass, fullscreen 1080p',
       reps: 60,
       setup: () => {
-        const sky = new SkyPass(gl, 'bench.sky');
+        const sky = new SkyPass(gl);
         disposables.push(sky);
         return { draw: () => sky.draw(camera, inks, { density: 1, galaxy: 0.6 }) };
       },
@@ -135,11 +135,11 @@ export async function runAllBenches(
       reps: 60,
       setup: () => {
         const params = generatePlanet(new Rng('bench-planet'));
-        const program = new Program(gl, planetVert, planetFrag, 'bench.planet');
+        const program = Program.cached(gl, planetVert, planetFrag, 'worldsmith.planet');
         const mesh = toMesh(gl, uvSphere(1, 96, 64));
         const ramp = createRampTexture(gl, params, inks);
         const fields = bakePlanetFields(gl, params);
-        disposables.push(program, mesh, fields, {
+        disposables.push(mesh, fields, {
           dispose: () => gl.deleteTexture(ramp),
         });
         return {
@@ -185,9 +185,9 @@ export async function runAllBenches(
       name: 'Banded-ink body shader, fullscreen',
       reps: 80,
       setup: () => {
-        const program = new Program(gl, bodyVert, bodyFrag, 'bench.body');
+        const program = Program.cached(gl, bodyVert, bodyFrag, 'scene.body');
         const mesh = toMesh(gl, uvSphere(1, 56, 36));
-        disposables.push(program, mesh);
+        disposables.push(mesh);
         return {
           prepare: () => {
             program
@@ -242,8 +242,8 @@ export async function runAllBenches(
           ],
           indices: geo.indices,
         });
-        const program = new Program(gl, asteroidVert, asteroidFrag, 'bench.belt');
-        disposables.push(program, mesh);
+        const program = Program.cached(gl, asteroidVert, asteroidFrag, 'orrery.asteroid');
+        disposables.push(mesh);
         return {
           prepare: () => {
             program
@@ -266,7 +266,7 @@ export async function runAllBenches(
       name: 'Glow billboard, screen-filling',
       reps: 80,
       setup: () => {
-        const glow = new GlowBillboard(gl, 'bench.glow');
+        const glow = new GlowBillboard(gl);
         disposables.push(glow);
         const center = vec3.create(0, 0, 0);
         const eyeCam = new OrbitCamera({ distance: 4 });

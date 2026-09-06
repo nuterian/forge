@@ -338,7 +338,7 @@ export function bakePlanetFields(gl: WebGL2RenderingContext, params: PlanetParam
     depth: false,
     filter: gl.LINEAR,
   });
-  const program = new Program(gl, bakeVert, bakeFrag, 'worldsmith.bake');
+  const program = Program.cached(gl, bakeVert, bakeFrag, 'worldsmith.bake');
   const quad = fullscreenTriangle(gl);
 
   target.bind();
@@ -356,7 +356,6 @@ export function bakePlanetFields(gl: WebGL2RenderingContext, params: PlanetParam
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.bindTexture(gl.TEXTURE_2D, null);
 
-  program.dispose();
   quad.dispose();
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.enable(gl.CULL_FACE);

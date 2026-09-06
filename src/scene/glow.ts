@@ -54,8 +54,8 @@ export class GlowBillboard {
   private readonly sunDir2D = new Float32Array([1, 0]);
   private readonly prominence = new Float32Array([1, 0, 0, 0.5]);
 
-  constructor(gl: WebGL2RenderingContext, name = 'scene.glow') {
-    this.program = new Program(gl, billboardVert, glowFrag, name);
+  constructor(gl: WebGL2RenderingContext) {
+    this.program = Program.cached(gl, billboardVert, glowFrag, 'scene.glow');
     this.quad = billboardQuad(gl);
   }
 
@@ -102,8 +102,8 @@ export class GlowBillboard {
     this.quad.draw();
   }
 
+  /** The program is shared and outlives this billboard; only the quad is ours. */
   dispose(): void {
-    this.program.dispose();
     this.quad.dispose();
   }
 }

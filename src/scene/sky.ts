@@ -32,9 +32,9 @@ export class SkyPass {
   private readonly quad: Mesh;
   private readonly invViewProjection = mat4.create();
 
-  constructor(gl: WebGL2RenderingContext, name = 'scene.sky') {
+  constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
-    this.program = new Program(gl, skyVert, skyFrag, name);
+    this.program = Program.cached(gl, skyVert, skyFrag, 'scene.sky');
     this.quad = fullscreenTriangle(gl);
   }
 
@@ -56,8 +56,8 @@ export class SkyPass {
     this.quad.draw();
   }
 
+  /** The program is shared and outlives this pass; only the quad is ours. */
   dispose(): void {
-    this.program.dispose();
     this.quad.dispose();
   }
 }

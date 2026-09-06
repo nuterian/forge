@@ -55,7 +55,7 @@ export class PrintPass {
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
-    this.program = new Program(gl, vertSource, fragSource, 'print');
+    this.program = Program.cached(gl, vertSource, fragSource, 'print');
     this.quad = fullscreenTriangle(gl);
   }
 
@@ -90,8 +90,8 @@ export class PrintPass {
     this.quad.draw();
   }
 
+  /** The program is shared and outlives this pass; only the quad is ours. */
   dispose(): void {
-    this.program.dispose();
     this.quad.dispose();
   }
 }

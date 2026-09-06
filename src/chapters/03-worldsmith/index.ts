@@ -68,16 +68,17 @@ export function create(ctx: ChapterContext): ChapterInstance {
 
   // -- programs --------------------------------------------------------------
 
-  const planetProgram = new Program(gl, planetVert, planetFrag, 'worldsmith.planet');
-  const moonProgram = new Program(gl, bodyVert, bodyFrag, 'worldsmith.moon');
-  const sunProgram = new Program(gl, bodyVert, sunFrag, 'worldsmith.sun');
-  const orbitProgram = new Program(gl, orbitVert, orbitFrag, 'worldsmith.orbit');
-  const ringProgram = params.rings ? new Program(gl, bodyVert, ringsFrag, 'worldsmith.rings') : null;
-  const sky = new SkyPass(gl, 'worldsmith.sky');
+  // Cached by source, so a reroll or an ink change finds them already built.
+  const planetProgram = Program.cached(gl, planetVert, planetFrag, 'worldsmith.planet');
+  const moonProgram = Program.cached(gl, bodyVert, bodyFrag, 'scene.body');
+  const sunProgram = Program.cached(gl, bodyVert, sunFrag, 'scene.sun');
+  const orbitProgram = Program.cached(gl, orbitVert, orbitFrag, 'scene.orbit');
+  const ringProgram = params.rings ? Program.cached(gl, bodyVert, ringsFrag, 'scene.rings') : null;
+  const sky = new SkyPass(gl);
   // One class, two scales: the star's corona reaches out evenly, the planet's
   // atmosphere leans into the light.
-  const corona = new GlowBillboard(gl, 'worldsmith.corona');
-  const halo = new GlowBillboard(gl, 'worldsmith.halo');
+  const corona = new GlowBillboard(gl);
+  const halo = new GlowBillboard(gl);
 
   // -- geometry & textures -----------------------------------------------------
 
@@ -481,10 +482,6 @@ export function create(ctx: ChapterContext): ChapterInstance {
     dispose() {
       camera.minDistance = 0.4;
       camera.maxDistance = 900;
-      for (const program of [planetProgram, moonProgram, sunProgram, orbitProgram]) {
-        program.dispose();
-      }
-      ringProgram?.dispose();
       sky.dispose();
       corona.dispose();
       halo.dispose();
