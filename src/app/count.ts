@@ -22,17 +22,21 @@ import { routeId } from './title.ts';
 const ENDPOINT = 'https://stats.jugalm.com/api/send';
 
 /**
- * The Forge's own website id, from the Umami dashboard.
+ * jugalm.com's website id — the same one the home page, Flight, song and the
+ * résumé report to.
  *
- * Its own entry, deliberately not jugalm.com's: six chapters of hash routes
- * filed into the personal site would bury its numbers under this one's.
+ * This used to be an id of The Forge's own, on the reasoning that six chapters
+ * of hash routes would bury the personal site's numbers. It split one domain
+ * into two dashboards instead, and a visitor who came from the home page was
+ * counted as two strangers. One id keeps the journey whole, and the drill-down
+ * is a filter: every URL reported from here begins `/forge/`.
  *
  * Emptying this string is also the off switch, and a more thorough one than a
  * flag. With no id the bundler folds the guard below, finds the rest of count()
  * unreachable and deletes it — `stats.jugalm.com` stops appearing in the built
  * bundle at all. A build with nowhere to report ships no reporting code.
  */
-const WEBSITE = '74352d1e-ce43-4516-a754-3501eb445437';
+const WEBSITE = '0a907e1e-2783-4515-b2bf-d5a2b7d8db57';
 
 /** Asked not to be counted, in either of the two ways a browser can ask. */
 const optedOut = (): boolean =>
