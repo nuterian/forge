@@ -38,6 +38,26 @@ const ENDPOINT = 'https://stats.jugalm.com/api/send';
  */
 const WEBSITE = '0a907e1e-2783-4515-b2bf-d5a2b7d8db57';
 
+/**
+ * The author is not a visitor.
+ *
+ * `?nocount` on any page of jugalm.com turns counting off for this browser, on
+ * every app under the domain — they share an origin, and each counter reads the
+ * same key; `?count` turns it back on. The flag lives on the device that asked
+ * for it and is never sent anywhere, so "nothing is stored" stays true for every
+ * visitor who did not type that. Storage that throws simply counts.
+ */
+const mine = (): boolean => {
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.has('nocount')) localStorage.setItem('nocount', '1');
+    else if (q.has('count')) localStorage.removeItem('nocount');
+    return localStorage.getItem('nocount') === '1';
+  } catch {
+    return false;
+  }
+};
+
 /** Asked not to be counted, in either of the two ways a browser can ask. */
 const optedOut = (): boolean =>
   navigator.doNotTrack === '1' ||
@@ -87,7 +107,7 @@ function send(payload: Record<string, unknown>, where?: Where): void {
   // Only the real site, and only real people: a local build, a preview server
   // or an automated run is not a visit.
   if (!WEBSITE) return;
-  if (location.hostname !== 'jugalm.com' || navigator.webdriver || optedOut()) return;
+  if (location.hostname !== 'jugalm.com' || navigator.webdriver || optedOut() || mine()) return;
   if (!navigator.sendBeacon) return;
 
   try {
